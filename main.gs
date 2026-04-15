@@ -296,7 +296,7 @@ function writeDailyLog(jobLog, logsFolderId) {
     let content = file.getBlob().getDataAsString();
     file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr}</h2>${runHtml}</body></html>`;
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr} (v${CONFIG.VERSION})</h2>${runHtml}</body></html>`;
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
