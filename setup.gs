@@ -15,6 +15,9 @@ function installNexus() {
   
   // Step 2: Activate the background timer
   setupAutoRun();
+
+  // Step 3: Install update check
+  checkForUpdates(); 
   
   Logger.log("========================================");
   Logger.log("INSTALLATION COMPLETE! Nexus is now active.");
@@ -131,7 +134,8 @@ function setupAutoRun() {
   
   // Create the new time-based trigger using the interval from Config.gs
   ScriptApp.newTrigger('mainPipeline').timeBased().everyMinutes(CONFIG.JOB_INTERVAL_MINUTES).create();
-  
+  ScriptApp.newTrigger('checkForUpdates').timeBased().everyDays(7).create(); 
+
   Logger.log(`Automation trigger successfully activated. Nexus will run every ${CONFIG.JOB_INTERVAL_MINUTES} minutes.`);
 }
 
@@ -176,4 +180,45 @@ Format:
 
 Sender Domain: {{DOMAIN}}
 {{PAYLOAD}}`;
+}
+
+/**
+ * Checks the public GitHub repository for a new release.
+ * Triggered automatically once a day via setupAutoRun.
+ */
+function checkForUpdates() {
+  if (!CONFIG.GITHUB_REPO || !SECRETS.NOTIFICATION_EMAIL || SECRETS.NOTIFICATION_EMAIL === 'your-email@gmail.com') return;
+
+  try {
+    const url = `https://api.github.com/repos/${CONFIG.GITHUB_REPO}/releases/latest`;
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    
+    if (response.getResponseCode() === 200) {
+      const releaseData = JSON.parse(response.getContentText());
+      const latestVersion = releaseData.tag_name.replace(/^v/, ''); 
+      const currentVersion = CONFIG.VERSION.replace(/^v/, '');
+      
+      if (isNewerVersion(latestVersion, currentVersion)) {
+        const subject = `🚀 Nexus for Gmail Update Available! (v${latestVersion})`;
+        const body = `Great news!\n\nA new version of Nexus for Gmail (v${latestVersion}) has been released on GitHub.\nYou are currently running v${currentVersion}.\n\nCheck out the release notes and update your code here:\n${releaseData.html_url}\n\nStay organized,\nThe Nexus Engine`;
+        
+        GmailApp.sendEmail(SECRETS.NOTIFICATION_EMAIL, subject, body);
+      }
+    }
+  } catch (e) {
+    Logger.log("Update check failed: " + e.toString());
+  }
+}
+
+/**
+ * Compares semantic versions (e.g., determines that 1.1.0 > 1.0.9).
+ */
+function isNewerVersion(latest, current) {
+  const lParts = latest.split('.').map(Number);
+  const cParts = current.split('.').map(Number);
+  for (let i = 0; i < lParts.length; i++) {
+    if (lParts[i] > (cParts[i] || 0)) return true;
+    if (lParts[i] < (cParts[i] || 0)) return false;
+  }
+  return false;
 }
