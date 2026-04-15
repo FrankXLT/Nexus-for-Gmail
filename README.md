@@ -50,6 +50,28 @@ Check the Execution Log at the bottom of the screen. You will see an "INSTALLATI
 3. **Review:** Nexus will remove the `ai-ready` tag, apply the appropriate `Purpose` and `Entity` folders, colorize them, mark them `ai-done`, and flag them as Important or Starred based on your sensitivity settings.
 4. **Edit the Brain:** Want to teach Nexus new tricks? Open the **"System Prompt - Email AI"** Google Document in your Google Drive and modify the instructions. The script will automatically adapt on its next run!
 
+## 🧠 Customizing the AI's Brain (The Google Doc)
+
+One of the most powerful features of Nexus is that you do not need to edit any code to change how the AI behaves. During installation, Nexus created a Google Document in your Drive called **System Prompt - Email AI** (located inside the `Email Classification Engine` folder).
+
+This document acts as the literal "brain" of the operation. Every time the script runs, it reads the text in this document to get its instructions. 
+
+### How to Teach the AI New Tricks:
+1. Open the **System Prompt - Email AI** document in your Google Drive.
+2. Read through the existing plain-English instructions. 
+3. **Add your own rules!** For example, you can type a new line under Task 2 that says: *"If the email is from a food delivery service, always set the category to 'Updates'."* or *"If the email mentions a subscription renewal, automatically set isImportant to true."*
+4. **The Golden Rule:** Do NOT delete or alter the bracketed variables (like `{{PURPOSES}}`, `{{IMPORTANT_RULE}}`, or `{{PAYLOAD}}`). The background script specifically looks for these tags to dynamically inject your inbox data and configuration limits.
+
+As soon as you type your changes into the Google Doc, they are instantly live. You don't need to click "save" or restart the script. The next time your 5-minute timer triggers, the AI will immediately start following your new rules. 
+
+*(Note: If you ever accidentally delete the document or mess up the formatting beyond repair, you can always open your Apps Script editor, select `resetSystemPrompt` from the dropdown, and hit Run to restore the factory default instructions).*
+
+## 🔄 Checking for Updates
+Because this script runs entirely within your personal Google account, it does not auto-update. 
+1. Open your `Config.gs` file and check the `VERSION` number at the top.
+2. Check the [Releases page](../../releases) on this repository.
+3. If a newer version is available, simply copy the updated code from GitHub and paste it over your existing `.gs` files. *(Note: You rarely need to overwrite `Secrets.gs` or `Config.gs` unless explicitly stated in the release notes, keeping your personal settings perfectly intact!)*
+
 ---
 
 ## 🎛️ Configuration (`Config.gs`)
