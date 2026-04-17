@@ -1,39 +1,24 @@
 /**
  * NEXUS FOR GMAIL - CONFIGURATION
+ * * WHY THIS FILE EXISTS:
  * This acts as the "Control Panel" for Nexus. It holds all the variables, labels, 
- * and limits that dictate how the script behaves. By keeping these settings separate 
- * from the execution logic (Main.gs), non-technical users can customize the engine 
- * without needing to understand how to read or write JavaScript.
-
-  ==========================================
-  SUPPORTED GEMINI MODELS:
-  Different models balance speed, cost, and "reasoning" capability.
-  Copy and paste one of the strings below into the GEMINI_MODEL variable.
-  
-  -- Series 3 (Latest) --
-  'gemini-3.1-pro-preview'
-  'gemini-3.1-flash-lite-preview'
-  'gemini-3.0-flash-preview'
-  
-  -- Series 2.5 (Stable) --
-  'gemini-2.5-pro'
-  'gemini-2.5-flash'
-  'gemini-2.5-flash-lite'
-  ==========================================
-*/
+ * rules, and limits that dictate how the script behaves. By keeping these settings separate 
+ * from the execution logic, you can customize the engine without writing JavaScript.
+ */
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
+  // The engine uses this to check GitHub daily to see if you are running the latest code.
   VERSION: '1.4.0', 
-  GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
+  GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail', 
   
-  // We default to flash-lite because it is the most cost-effective model for new users,
+  // We default to flash-lite because it is the most cost-effective model,
   // capable of processing thousands of emails for pennies.
   GEMINI_MODEL: 'gemini-2.5-flash-lite', 
   
   // Execution Settings
-  // Determines how frequently Google's servers wake up to run the script.
-  JOB_INTERVAL_MINUTES: 1, 
+  // Determines how frequently Google's servers wake up to process your ai-ready queue.
+  JOB_INTERVAL_MINUTES: 5, 
   
   // Debugging & Telemetry
   // When true, the script generates raw .txt files showing exactly what the AI returned.
@@ -43,17 +28,20 @@ const CONFIG = {
   
   // Gmail Label Triggers
   // The system uses these native Gmail labels to track an email's status in the pipeline.
-  LABEL_READY: 'ai-ready',       // Apply this to emails you want processed
-  LABEL_COMPLETE: 'ai-done',     // Applied successfully
-  LABEL_FAILED: 'ai-failed',     // Applied if the AI crashes or returns bad data
+  LABEL_READY: 'ai-ready',       
+  LABEL_COMPLETE: 'ai-done',     
+  LABEL_FAILED: 'ai-failed',     
   
-  // Parent Folders for Sorting
-  // These are the top-level directories Nexus will create in your Gmail sidebar.
-  // Parent Folders for Sorting
+  // The master folder where nested Purpose labels (like Purpose/Receipts) will live.
   PARENT_LABEL_PURPOSE: 'Purpose', 
-  
+
+  // ==========================================
+  // TOP-LEVEL ENTITY DIRECTORY
   // Define your main parent folders and explain to the AI exactly what belongs in them.
+  // The engine dynamically reads this list, so you can add "Government" or "Healthcare" 
+  // simply by adding a new line below.
   // Format: "Folder Name": "Description for the AI"
+  // ==========================================
   ENTITIES: {
     "Financial": "Banks, lenders, credit cards, investment accounts, and tax entities.",
     "Business": "Companies, retail stores, services, newsletters, and organizations.",
@@ -61,66 +49,58 @@ const CONFIG = {
     "People": "Individual humans and personal contacts.",
     "Health":"Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health."
   },
-  
-  // how strict the AI should be when deciding to flag an email.
-  // Uncomment the rule you want to actively use.
-  FLAG_RULES: {
-    // IMPORTANT FLAG (Yellow Chevron in Gmail)
-    // Focuses on actual user action required based on the email body, ignoring clickbait subjects.
-    IMPORTANT: "Strict: ONLY true for direct action items, overdue bills, or critical account notices derived from the email BODY. Ignore sensationalized subject lines or marketing disguised as alerts.",
-    // IMPORTANT: "Moderate: True for action items, upcoming bills, policy changes, and personalized alerts requiring the user's review.",
-    // IMPORTANT: "Lenient: True for any informational alert or action item that isn't marketing, forums, or social.",
 
-    // STARRED FLAG (Yellow Star in Gmail)
-    // Focuses on active, back-and-forth communication rather than static receipts.
-    STARRED: "Strict: ONLY true for active, ongoing back-and-forth conversations (replies/forwards) that are categorized as 'Updates'.",
-    // STARRED: "Moderate: True for ongoing conversational threads, or highly critical reference items like flight tickets and tax documents.",
-    // STARRED: "Lenient: True for any ongoing thread, receipt, order confirmation, or shipping update."
-  },
-  
-  // Pre-loaded Purpose categories to help new users get started without having to 
-  // invent their own organizational structure from scratch.
+  // Pre-loaded Purpose categories to help organize specific types of emails.
   DEFAULT_PURPOSES: [
     'Accounts', 'Credit Reports', 'Support',
     'Memberships', 'News', 'Orders', 'Payments',
     'Personal', 'Registration', 'Shipping', 
-    'Statements', 'Subscriptions' // <-- Updated
+    'Statements', 'Subscriptions' 
   ],
 
+  // ==========================================
   // BLACKLIST CONTROLS
   // Prevent the AI from categorizing or creating specific labels.
+  // ==========================================
   BLACKLIST: {
-    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice'],
-    
+    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None'],
     // If true: The engine completely ignores the term if the AI suggests it.
     DO_NOT_USE: true, 
-    
     // If true: The engine will use the term if you ALREADY have a label for it, 
     // but will NOT create a new Gmail label if it doesn't exist.
     DO_NOT_CREATE: true 
   },
-  
+
+  // ==========================================
   // AUTO-TAGGING CONTROLS
-  // Automatically creates a native Gmail filter to tag incoming mail.
+  // Automatically creates a native Gmail filter to tag incoming mail the millisecond it arrives.
+  // ==========================================
   AUTO_TAGGING: {
     ENABLED: true, 
-    // Which native Gmail tabs should the filter ignore?
+    // Which native Gmail tabs should the filter completely ignore?
     EXCLUDE_CATEGORIES: ['Promotions', 'Social', 'Forums'] 
   },
 
+  // ==========================================
+  // FLAG SENSITIVITY CONTROLS
+  // These rules dictate exactly how strict the AI should be when flagging an email.
+  // ==========================================
+  FLAG_RULES: {
+    // IMPORTANT FLAG (Yellow Chevron in Gmail)
+    IMPORTANT: "Strict: ONLY true for direct action items, overdue bills, or critical account notices derived from the email BODY. Ignore sensationalized subject lines or marketing disguised as alerts.",
+    // STARRED FLAG (Yellow Star in Gmail)
+    STARRED: "Strict: ONLY true for active, ongoing back-and-forth conversations (replies/forwards) that are categorized as 'Updates'."
+  },
+  
   // Safety & Throttle Limits
-  // MAX_EMAILS_PER_BATCH: Prevents the AI prompt from becoming too large and timing out.
-  // MAX_BATCHES_PER_RUN: Prevents the script from exceeding Google's 6-minute execution limit.
-  MAX_EMAILS_PER_BATCH: 5, 
+  // Prevents the AI prompt from becoming too large and crashing Google's execution time limits.
+  MAX_EMAILS_PER_BATCH: 10, 
   MAX_BATCHES_PER_RUN: 10,  
   
   // Google Drive Architecture
-  // The master folder where logs and the system prompt are stored.
-  MASTER_FOLDER_NAME: 'Nexus for Gmail', 
+  MASTER_FOLDER_NAME: 'Email Classification Engine', 
   
-  // Advanced Gmail API Hex Palette
-  // Google Apps Script natively only supports 16 basic colors. We use the Advanced 
-  // REST API and this specific hex palette to access Gmail's modern pastel colors.
+  // Advanced Gmail API Hex Palette for coloring folders
   PALETTE: {
     "Red": { bg: "#fb4c2f", text: "#ffffff" }, "Brick Red": { bg: "#e66550", text: "#ffffff" },
     "Soft Red": { bg: "#efa093", text: "#000000" }, "Pink": { bg: "#f691b3", text: "#000000" },
