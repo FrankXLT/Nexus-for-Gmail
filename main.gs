@@ -6,7 +6,6 @@
  */
 
 function mainPipeline() {
-function mainPipeline() {
   // Check for updates silently in the background (runs once per 24 hours)
   checkForUpdates();
 
