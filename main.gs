@@ -111,7 +111,6 @@ function mainPipeline() {
     // If the API call was successful and the JSON structure looks complete
     if (apiResult.success && result && result.name && result.entityType && result.emails) {
       
-      // Determine the correct parent folder based on the AI's entity decision
       let parentPath;
       if (result.entityType === "Person") {
         parentPath = CONFIG.PARENT_LABEL_PEOPLE;
@@ -121,45 +120,50 @@ function mainPipeline() {
         parentPath = CONFIG.PARENT_LABEL_BUSINESS;
       }
 
-      // Build the full path (e.g., 'Business/Amazon')
       let correspondentPath = `${parentPath}/${result.name}`;
-      let correspondentLabel = getOrCreateLabel(correspondentPath);
+      let correspondentLabel = null;
       
-      // Apply the visual color to the label using the Advanced API
-      let colorProfile = CONFIG.PALETTE[result.color] || CONFIG.PALETTE["Gray"];
-      setLabelColor(correspondentPath, colorProfile.bg, colorProfile.text);
+      // Blacklist Check: Correspondent
+      if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name))) {
+        correspondentLabel = getOrCreateLabel(correspondentPath, result.name);
+        if (correspondentLabel) {
+          let colorProfile = CONFIG.PALETTE[result.color] || CONFIG.PALETTE["Gray"];
+          setLabelColor(correspondentPath, colorProfile.bg, colorProfile.text);
+        }
+      }
 
-      // Loop through each individual email inside this specific domain batch
       for (let j = 0; j < result.emails.length; j++) {
         const emailAI = result.emails[j];
-        
-        // Safety check: Make sure the AI didn't invent an index that doesn't exist
         if (emailAI.index >= domainThreads.length || emailAI.index < 0) continue; 
         
         const thread = domainThreads[emailAI.index]; 
         const latestMessage = thread.getMessages()[thread.getMessages().length - 1];
         
-        let appliedTags = [CONFIG.LABEL_COMPLETE, correspondentPath];
+        let appliedTags = [CONFIG.LABEL_COMPLETE];
         
-        // Tag 1: Apply the Business/Person/Financial tag
-        thread.addLabel(correspondentLabel); 
-
-        // Tag 2: Apply the Purpose Tag (if the AI found one)
-        if (emailAI.purpose) {
-          let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
-          let purposeLabel = getOrCreateLabel(purposePath);
-          setLabelColor(purposePath, CONFIG.PALETTE["Dark Gray"].bg, CONFIG.PALETTE["Dark Gray"].text);
-          thread.addLabel(purposeLabel);
-          appliedTags.push(purposePath);
+        // Apply Correspondent if it passed the blacklist
+        if (correspondentLabel) {
+          thread.addLabel(correspondentLabel); 
+          appliedTags.push(correspondentPath);
         }
 
-        // Tag 3: Move to the correct Gmail Inbox tab (e.g., Updates, Promotions)
+        // Blacklist Check: Purpose
+        if (emailAI.purpose && !(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(emailAI.purpose))) {
+          let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
+          let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
+          
+          if (purposeLabel) {
+            setLabelColor(purposePath, CONFIG.PALETTE["Dark Gray"].bg, CONFIG.PALETTE["Dark Gray"].text);
+            thread.addLabel(purposeLabel);
+            appliedTags.push(purposePath);
+          }
+        }
+
         if (["Primary", "Promotions", "Social", "Updates", "Forums"].includes(emailAI.category)) {
           setSystemCategory(thread.getId(), emailAI.category);
           appliedTags.push(`Category: ${emailAI.category}`);
         }
 
-        // Apply Important Flag
         if (emailAI.isImportant) {
           thread.markImportant();
           appliedTags.push("Important");
@@ -167,7 +171,6 @@ function mainPipeline() {
           thread.markUnimportant();
         }
 
-        // Apply Starred Flag
         if (emailAI.isStarred) {
           latestMessage.star();
           appliedTags.push("Starred");
@@ -175,33 +178,14 @@ function mainPipeline() {
           latestMessage.unstar();
         }
 
-        // Remove the trigger tag and mark it complete
         thread.addLabel(completeLabel);
         thread.removeLabel(readyLabel);
 
-        // Record exactly what we did for the daily HTML log
         batchLog.emails.push({
           subject: latestMessage.getSubject(),
           link: thread.getPermalink(),
           before: [CONFIG.LABEL_READY],
           after: appliedTags
-        });
-      }
-    } else {
-      // THE QUARANTINE PROTOCOL
-      // If the AI hallucinates, returns bad JSON, or times out, we catch the error 
-      // here instead of crashing. We tag the entire batch as 'failed' so the user 
-      // can review it manually.
-      for (let k = 0; k < domainThreads.length; k++) {
-        const thread = domainThreads[k];
-        thread.addLabel(failedLabel);
-        thread.removeLabel(readyLabel);
-        
-        batchLog.emails.push({
-          subject: thread.getMessages()[thread.getMessages().length - 1].getSubject(),
-          link: thread.getPermalink(),
-          before: [CONFIG.LABEL_READY],
-          after: [CONFIG.LABEL_FAILED]
         });
       }
     }
@@ -426,6 +410,22 @@ function getExistingTags(parentCategoryName) {
 /**
  * Finds a label by name, or creates it if it doesn't exist yet.
  */
-function getOrCreateLabel(labelName) {
-  return GmailApp.getUserLabelByName(labelName) || GmailApp.createLabel(labelName);
+function getOrCreateLabel(labelPath, baseTerm) {
+  let label = GmailApp.getUserLabelByName(labelPath);
+  if (label) return label; // Label exists, safe to return
+  
+  // Label doesn't exist. Check if we are forbidden from creating it.
+  if (baseTerm && CONFIG.BLACKLIST.DO_NOT_CREATE && isBlacklisted(baseTerm)) {
+    return null; 
+  }
+  return GmailApp.createLabel(labelPath);
+}
+
+/**
+ * Checks if a proposed term is on the user's blacklist.
+ */
+function isBlacklisted(term) {
+  if (!term || !CONFIG.BLACKLIST || !CONFIG.BLACKLIST.TERMS) return false;
+  const lowerTerm = term.toLowerCase();
+  return CONFIG.BLACKLIST.TERMS.some(t => t.toLowerCase() === lowerTerm);
 }
