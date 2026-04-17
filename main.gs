@@ -6,7 +6,9 @@
  */
 
 function mainPipeline() {
-  // Grab the specific Gmail labels we use to track state
+  // Check for updates silently in the background (runs once per 24 hours)
+  checkForUpdates();
+
   const readyLabel = GmailApp.getUserLabelByName(CONFIG.LABEL_READY);
   const completeLabel = getOrCreateLabel(CONFIG.LABEL_COMPLETE);
   const failedLabel = getOrCreateLabel(CONFIG.LABEL_FAILED);
@@ -15,24 +17,7 @@ function mainPipeline() {
   const rawThreads = readyLabel.getThreads(0, 40); 
   if (rawThreads.length === 0) return;
 
-  // CONFLICT RESOLUTION: Filter out zombie threads
-  const threads = [];
-  for (let i = 0; i < rawThreads.length; i++) {
-    const labels = rawThreads[i].getLabels();
-    const hasComplete = labels.some(l => l.getName() === CONFIG.LABEL_COMPLETE);
-    
-    if (hasComplete) {
-      // Thread has both ai-ready and ai-done. 
-      // Strip ai-ready so it stops clogging the queue, and do not process it.
-      rawThreads[i].removeLabel(readyLabel);
-    } else {
-      threads.push(rawThreads[i]);
-    }
-  }
-  
-  if (threads.length === 0) return;
-
-  // Retrieve the Drive folder IDs we stored during the setup phase
+  // Initialize Drive variables early so we can write to the log if we only have zombie threads
   const props = PropertiesService.getUserProperties();
   const promptDocId = props.getProperty('PROMPT_DOC_ID');
   const logsFolderId = props.getProperty('LOGS_FOLDER_ID');
@@ -43,23 +28,62 @@ function mainPipeline() {
     return;
   }
   
-  // Automatically generate the Debug folder if the user toggled it on in the config
   if (CONFIG.DEBUG_MODE && !debugFolderId) {
     const masterFolder = DriveApp.getFolderById(logsFolderId).getParents().next();
     const newDebugFolder = masterFolder.createFolder(CONFIG.DEBUG_FOLDER_NAME);
     debugFolderId = newDebugFolder.getId();
     props.setProperty('DEBUG_FOLDER_ID', debugFolderId);
   }
-  
-  // Fetch the physical text from the Google Doc to use as the base instructions
-  const promptTemplate = DocumentApp.openById(promptDocId).getBody().getText();
 
-  // Initialize an object to store telemetry for our HTML log
+  // Initialize the log immediately
   let jobLog = {
     startTime: new Date(),
     apiCalls: 0,
     batches: [] 
   };
+
+  // Special batch just for tracking conflict resolution
+  let skippedBatch = {
+    domain: "System Cleanup (Ignored Zombie Threads)",
+    duration: "0.00",
+    tokens: { total: 0, prompt: 0, candidates: 0 },
+    emails: []
+  };
+
+  // CONFLICT RESOLUTION: Filter out zombie threads and log them
+  const threads = [];
+  for (let i = 0; i < rawThreads.length; i++) {
+    const labels = rawThreads[i].getLabels();
+    const hasComplete = labels.some(l => l.getName() === CONFIG.LABEL_COMPLETE);
+    
+    if (hasComplete) {
+      rawThreads[i].removeLabel(readyLabel);
+      const latestMessage = rawThreads[i].getMessages()[rawThreads[i].getMessages().length - 1];
+      
+      // Add it to our telemetry report
+      skippedBatch.emails.push({
+        subject: latestMessage.getSubject(),
+        link: rawThreads[i].getPermalink(),
+        before: [CONFIG.LABEL_READY, CONFIG.LABEL_COMPLETE],
+        after: [CONFIG.LABEL_COMPLETE]
+      });
+    } else {
+      threads.push(rawThreads[i]);
+    }
+  }
+  
+  // If we cleaned up any zombies, push them to the log report
+  if (skippedBatch.emails.length > 0) {
+    jobLog.batches.push(skippedBatch);
+  }
+
+  // If there are no actual threads to send to the AI, write the log (if zombies existed) and exit
+  if (threads.length === 0) {
+    if (jobLog.batches.length > 0) writeDailyLog(jobLog, logsFolderId);
+    return;
+  }
+  
+  const promptTemplate = DocumentApp.openById(promptDocId).getBody().getText();
 
   // STEP A: SORTING & BATCHING
   // Instead of sending 10 emails to the AI individually (which costs 10x the input tokens),

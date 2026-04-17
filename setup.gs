@@ -157,7 +157,7 @@ Task 2: Email Specifics (Evaluate each EMAIL INDEX)
 For each email, provide:
 - index: The integer ID matching the EMAIL INDEX.
 - purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). Check list: [{{PURPOSES}}]. If you are unsure or it does not fit a clear category, return null.
-- category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums".
+- category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "Person" and this is a conversational email, strongly favor "Primary" over "Updates".
 - isImportant: Boolean ({{IMPORTANT_RULE}})
 - isStarred: Boolean ({{STARRED_RULE}})
 
