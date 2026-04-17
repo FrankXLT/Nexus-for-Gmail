@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '1.1.0', 
+  VERSION: '1.2.0', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
@@ -75,11 +75,26 @@ const CONFIG = {
   // Pre-loaded Purpose categories to help new users get started without having to 
   // invent their own organizational structure from scratch.
   DEFAULT_PURPOSES: [
-    'Accounts', 'Alerts', 'Credit Reports', 'Support',
+    'Accounts', 'Credit Reports', 'Support',
     'Memberships', 'News', 'Orders', 'Payments',
-    'Personal', 'Registration', 'Shipping', 'Statements'
+    'Personal', 'Registration', 'Shipping', 
+    'Statements', 'Subscriptions'
   ],
-  
+
+  // BLACKLIST CONTROLS
+  // Prevent the AI from categorizing or creating specific labels.
+  BLACKLIST: {
+    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None'],
+    
+    // If true: The engine completely ignores the term if the AI suggests it.
+    DO_NOT_USE: true, 
+    
+    // If true: The engine will use the term if you ALREADY have a label for it, 
+    // but will NOT create a new Gmail label if it doesn't exist.
+    DO_NOT_CREATE: true 
+  },
+
+
   // Safety & Throttle Limits
   // MAX_EMAILS_PER_BATCH: Prevents the AI prompt from becoming too large and timing out.
   // MAX_BATCHES_PER_RUN: Prevents the script from exceeding Google's 6-minute execution limit.
