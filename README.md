@@ -80,7 +80,9 @@ Nexus is built to be customized. Open `Config.gs` to adjust:
 * **`JOB_INTERVAL_MINUTES`**: Adjust how often the background script runs.
 * **`FLAG_RULES`**: Tweak the sensitivity (Strict, Moderate, Lenient) for how the AI decides an email is "Important" or "Starred."
 * **`DEFAULT_PURPOSES`**: Add or remove the standard sorting categories.
-
+* **`BLACKLIST`**: Take absolute control over what the AI is allowed to classify. Define an array of forbidden terms (e.g., 'Alerts', 'Spam', 'Unknown') and utilize two boolean controls:
+  * `DO_NOT_USE`: If true, the engine completely ignores the term if the AI suggests it.
+  * `DO_NOT_CREATE`: If true, the engine will use the term if you manually created the label in the past, but will strictly prevent the AI from generating a new label for it.
 ---
 
 ## 📜 License and Copyright
