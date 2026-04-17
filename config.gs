@@ -62,14 +62,16 @@ const CONFIG = {
   // ==========================================
   FLAG_RULES: {
     // IMPORTANT FLAG (Yellow Chevron in Gmail)
-    IMPORTANT: "Strict: ONLY true for urgent action items, unpaid bills, or legal notices.",
-    // IMPORTANT: "Moderate: True for bills, legal notices, and personalized account alerts.",
-    // IMPORTANT: "Lenient: True for anything that isn't marketing, forums, or social.",
+    // Focuses on actual user action required based on the email body, ignoring clickbait subjects.
+    IMPORTANT: "Strict: ONLY true for direct action items, overdue bills, or critical account notices derived from the email BODY. Ignore sensationalized subject lines or marketing disguised as alerts.",
+    // IMPORTANT: "Moderate: True for action items, upcoming bills, policy changes, and personalized alerts requiring the user's review.",
+    // IMPORTANT: "Lenient: True for any informational alert or action item that isn't marketing, forums, or social.",
 
     // STARRED FLAG (Yellow Star in Gmail)
-    STARRED: "Strict: ONLY true for highly critical reference items like flight tickets or tax documents.",
-    // STARRED: "Moderate: True for tracking numbers, final receipts, and event tickets.",
-    // STARRED: "Lenient: True for any receipt, order confirmation, or shipping update."
+    // Focuses on active, back-and-forth communication rather than static receipts.
+    STARRED: "Strict: ONLY true for active, ongoing back-and-forth conversations (replies/forwards) that are categorized as 'Updates'.",
+    // STARRED: "Moderate: True for ongoing conversational threads, or highly critical reference items like flight tickets and tax documents.",
+    // STARRED: "Lenient: True for any ongoing thread, receipt, order confirmation, or shipping update."
   },
   
   // Pre-loaded Purpose categories to help new users get started without having to 
