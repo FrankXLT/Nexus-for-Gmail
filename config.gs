@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '1.3.2', 
+  VERSION: '1.4.0', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
@@ -33,7 +33,7 @@ const CONFIG = {
   
   // Execution Settings
   // Determines how frequently Google's servers wake up to run the script.
-  JOB_INTERVAL_MINUTES: 5, 
+  JOB_INTERVAL_MINUTES: 1, 
   
   // Debugging & Telemetry
   // When true, the script generates raw .txt files showing exactly what the AI returned.
@@ -49,17 +49,21 @@ const CONFIG = {
   
   // Parent Folders for Sorting
   // These are the top-level directories Nexus will create in your Gmail sidebar.
-  PARENT_LABEL_BUSINESS: 'Business',
-  PARENT_LABEL_PEOPLE: 'People',
-  PARENT_LABEL_FINANCIAL: 'Financial', 
+  // Parent Folders for Sorting
   PARENT_LABEL_PURPOSE: 'Purpose', 
   
-  // ==========================================
-  // FLAG SENSITIVITY CONTROLS
-  // Large Language Models (LLMs) can be overzealous. These rules dictate exactly 
+  // Define your main parent folders and explain to the AI exactly what belongs in them.
+  // Format: "Folder Name": "Description for the AI"
+  ENTITIES: {
+    "Financial": "Banks, lenders, credit cards, investment accounts, and tax entities.",
+    "Business": "Companies, retail stores, services, newsletters, and organizations.",
+    "Education": "Establishments for education such as schools, school boards, colleges, and higher education.",
+    "People": "Individual humans and personal contacts.",
+    "Health":"Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health."
+  },
+  
   // how strict the AI should be when deciding to flag an email.
   // Uncomment the rule you want to actively use.
-  // ==========================================
   FLAG_RULES: {
     // IMPORTANT FLAG (Yellow Chevron in Gmail)
     // Focuses on actual user action required based on the email body, ignoring clickbait subjects.
@@ -80,13 +84,13 @@ const CONFIG = {
     'Accounts', 'Credit Reports', 'Support',
     'Memberships', 'News', 'Orders', 'Payments',
     'Personal', 'Registration', 'Shipping', 
-    'Statements', 'Subscriptions'
+    'Statements', 'Subscriptions' // <-- Updated
   ],
 
   // BLACKLIST CONTROLS
   // Prevent the AI from categorizing or creating specific labels.
   BLACKLIST: {
-    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None'],
+    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice'],
     
     // If true: The engine completely ignores the term if the AI suggests it.
     DO_NOT_USE: true, 
@@ -95,12 +99,19 @@ const CONFIG = {
     // but will NOT create a new Gmail label if it doesn't exist.
     DO_NOT_CREATE: true 
   },
-
+  
+  // AUTO-TAGGING CONTROLS
+  // Automatically creates a native Gmail filter to tag incoming mail.
+  AUTO_TAGGING: {
+    ENABLED: true, 
+    // Which native Gmail tabs should the filter ignore?
+    EXCLUDE_CATEGORIES: ['Promotions', 'Social', 'Forums'] 
+  },
 
   // Safety & Throttle Limits
   // MAX_EMAILS_PER_BATCH: Prevents the AI prompt from becoming too large and timing out.
   // MAX_BATCHES_PER_RUN: Prevents the script from exceeding Google's 6-minute execution limit.
-  MAX_EMAILS_PER_BATCH: 10, 
+  MAX_EMAILS_PER_BATCH: 5, 
   MAX_BATCHES_PER_RUN: 10,  
   
   // Google Drive Architecture

@@ -1,10 +1,7 @@
 /**
  * NEXUS FOR GMAIL - CORE ENGINE
- * This is the workhorse of the application. It runs every few minutes, grabs emails, 
- * prepares the data, talks to the Gemini API, parses the response, and physically 
- * moves/colors the emails in your inbox.
+ * Contains the main execution pipeline and helper utilities.
  */
-
 function mainPipeline() {
   // Check for updates silently in the background (runs once per 24 hours)
   checkForUpdates();
@@ -85,9 +82,6 @@ function mainPipeline() {
   
   const promptTemplate = DocumentApp.openById(promptDocId).getBody().getText();
 
-  // STEP A: SORTING & BATCHING
-  // Instead of sending 10 emails to the AI individually (which costs 10x the input tokens),
-  // we group emails from the same sender (e.g., all Amazon emails) into an array.
   const buckets = {};
   for (let i = 0; i < threads.length; i++) {
     const messages = threads[i].getMessages();
@@ -100,42 +94,40 @@ function mainPipeline() {
     }
   }
 
-  // Gather existing Gmail tags so the AI doesn't create duplicate variations 
-  // (e.g., creating "Amazon.com" when "Amazon" already exists).
-  const existingCorrespondentTags = [
-    ...getExistingTags(CONFIG.PARENT_LABEL_BUSINESS), 
-    ...getExistingTags(CONFIG.PARENT_LABEL_PEOPLE),
-    ...getExistingTags(CONFIG.PARENT_LABEL_FINANCIAL)
-  ];
+  let existingCorrespondentTags = [];
+  for (const entity of Object.keys(CONFIG.ENTITIES)) {
+    existingCorrespondentTags.push(...getExistingTags(entity));
+  }
   const existingPurposeTags = getExistingTags(CONFIG.PARENT_LABEL_PURPOSE);
   const availableColors = Object.keys(CONFIG.PALETTE).join(', ');
 
   let batchesProcessed = 0;
   
-  // STEP B: PROCESSING THE BATCHES
   for (const domain in buckets) {
-    // Stop processing if we hit our self-imposed safety limit for this 5-minute window
     if (batchesProcessed >= CONFIG.MAX_BATCHES_PER_RUN) break;
 
     const domainThreads = buckets[domain];
-    
-    // Convert the physical email threads into raw text for the AI to read
     const payloadData = buildBatchPayload(domainThreads);
     
-    // Inject all of our live data into the {{PLACEHOLDERS}} in the prompt template
+    // Format the key-value dictionary into a readable list for the AI
+    let entityPromptText = "";
+    for (const [key, value] of Object.entries(CONFIG.ENTITIES)) {
+      entityPromptText += `- "${key}": ${value}\n`;
+    }
+    
     let finalPrompt = promptTemplate
       .replace('{{CORRESPONDENTS}}', existingCorrespondentTags.join(', '))
+      .replace('{{ENTITIES}}', entityPromptText.trim())
       .replace('{{COLORS}}', availableColors)
       .replace('{{PURPOSES}}', existingPurposeTags.join(', '))
-      .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) 
-      .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     
+      .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) // NEW
+      .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     // NEW
       .replace('{{DOMAIN}}', domain)
       .replace('{{PAYLOAD}}', payloadData);
     
     jobLog.apiCalls++; 
     batchesProcessed++;
     
-    // Send the prompt to Google's servers
     const apiResult = classifySenderBatch(finalPrompt, debugFolderId);
     
     let batchLog = {
@@ -147,17 +139,14 @@ function mainPipeline() {
 
     const result = apiResult.data;
     
-    // STEP C: PARSING THE RESPONSE
-    // If the API call was successful and the JSON structure looks complete
-    if (apiResult.success && result && result.name && result.entityType && result.emails) {
+if (apiResult.success && result && result.name && result.entityType && result.emails) {
       
-      let parentPath;
-      if (result.entityType === "Person") {
-        parentPath = CONFIG.PARENT_LABEL_PEOPLE;
-      } else if (result.entityType === "Financial") {
-        parentPath = CONFIG.PARENT_LABEL_FINANCIAL;
-      } else {
-        parentPath = CONFIG.PARENT_LABEL_BUSINESS;
+      // Dynamic Routing: Use the AI's choice if it exists in our config
+      let parentPath = result.entityType;
+      
+      // Fallback: If the AI hallucinates a non-existent entity, default to the first one in the config
+      if (!CONFIG.ENTITIES[parentPath]) {
+        parentPath = Object.keys(CONFIG.ENTITIES)[0]; 
       }
 
       let correspondentPath = `${parentPath}/${result.name}`;
@@ -233,7 +222,6 @@ function mainPipeline() {
     jobLog.batches.push(batchLog);
   }
 
-  // STEP D: Generate the visual HTML log in Google Drive
   if (jobLog.batches.length > 0) {
     writeDailyLog(jobLog, logsFolderId);
   }
@@ -243,9 +231,6 @@ function mainPipeline() {
 // UTILITY FUNCTIONS
 // ==========================================
 
-/**
- * Appends raw text to the daily debug log file for deep troubleshooting.
- */
 function writeDebugLog(logText, debugFolderId) {
   if (!CONFIG.DEBUG_MODE || !debugFolderId) return;
   try {
@@ -268,10 +253,6 @@ function writeDebugLog(logText, debugFolderId) {
   }
 }
 
-/**
- * Builds the visual HTML file that logs all API actions for the day.
- * If the file already exists, it injects the new data at the bottom.
- */
 function writeDailyLog(jobLog, logsFolderId) {
   const folder = DriveApp.getFolderById(logsFolderId);
   const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd");
@@ -320,16 +301,11 @@ function writeDailyLog(jobLog, logsFolderId) {
     let content = file.getBlob().getDataAsString();
     file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr} (v${CONFIG.VERSION})</h2>${runHtml}</body></html>`;
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr}</h2>${runHtml}</body></html>`;
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
 
-/**
- * Extracts the sender, subject, and first 1500 characters of the body
- * for the AI to analyze. We cap the body length to save on token costs and 
- * prevent massive email threads from crashing the payload.
- */
 function buildBatchPayload(threads) {
   let text = "";
   for (let i = 0; i < threads.length; i++) {
@@ -340,15 +316,8 @@ function buildBatchPayload(threads) {
   return text;
 }
 
-/**
- * Makes the HTTP request to the Gemini API via standard REST protocols.
- * It manages the performance timer, token extraction, and JSON cleaning.
- */
 function classifySenderBatch(finalPromptText, debugFolderId) {
-  // Construct the endpoint URL using the specific model chosen in Config.gs
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${SECRETS.GEMINI_API_KEY}`;
-  
-  // Format the request exactly how the Gemini v1beta API expects it
   const payload = { contents: [{ parts: [{ text: finalPromptText }] }] };
   const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
 
@@ -358,25 +327,19 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
   let tokens = { total: 0, prompt: 0, candidates: 0 };
 
   try {
-    // Execute the request
     const response = UrlFetchApp.fetch(url, options);
     duration = ((Date.now() - startTime) / 1000).toFixed(2);
     rawResponse = response.getContentText();
     const json = JSON.parse(rawResponse);
     
-    // Extract Token Telemetry if the API provided it
     if (json.usageMetadata) {
       tokens.total = json.usageMetadata.totalTokenCount || 0;
       tokens.prompt = json.usageMetadata.promptTokenCount || 0;
       tokens.candidates = json.usageMetadata.candidatesTokenCount || 0;
     }
     
-    // Check if the AI actually returned an answer
     if (json.candidates && json.candidates.length > 0) {
       let responseText = json.candidates[0].content.parts[0].text.trim();
-      
-      // LLMs love to wrap JSON in markdown (e.g., ```json ... ```).
-      // We must strip this out using Regex before JSON.parse() can read it.
       let cleanText = responseText.replace(/^```json/i, '').replace(/```$/i, '').trim();
       
       if (CONFIG.DEBUG_MODE) {
@@ -385,12 +348,10 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
       
       return { success: true, data: JSON.parse(cleanText), duration: duration, tokens: tokens };
     } else {
-      // Handles cases where the AI refuses to answer (e.g., safety filters tripped)
       if (CONFIG.DEBUG_MODE) writeDebugLog(`WARNING: API RETURNED NO CANDIDATES\nDuration: ${duration}s\nRaw HTTP Response:\n${rawResponse}`, debugFolderId);
       return { success: false, data: null, duration: duration, tokens: tokens };
     }
   } catch (e) { 
-    // This catches HTTP timeouts AND bad JSON formatting from the AI
     duration = ((Date.now() - startTime) / 1000).toFixed(2);
     Logger.log("Error in AI call: " + e.toString()); 
     if (CONFIG.DEBUG_MODE) {
@@ -400,20 +361,11 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
   }
 }
 
-/**
- * Strips out the display name to return just the core domain (e.g., returns 
- * 'amazon.com' from 'Amazon Customer Service <no-reply@amazon.com>').
- */
 function extractDomain(rawSender) {
   const match = rawSender.match(/<.+@(.+)>/);
   return match ? match[1].toLowerCase() : rawSender.split('@').pop().toLowerCase();
 }
 
-/**
- * Uses the Advanced Gmail Service to physically change label colors.
- * Apps Script doesn't support this natively, which is why the user must enable 
- * the 'Gmail API' service in the editor sidebar.
- */
 function setLabelColor(labelName, backgroundColor, textColor) {
   try {
     const labels = Gmail.Users.Labels.list('me').labels;
@@ -423,19 +375,12 @@ function setLabelColor(labelName, backgroundColor, textColor) {
   } catch (e) {}
 }
 
-/**
- * Assigns the email to native Gmail tabs (Promotions, Social, etc.) using internal system IDs.
- */
 function setSystemCategory(threadId, categoryName) {
   const categoryMap = { "Promotions": "CATEGORY_PROMOTIONS", "Social": "CATEGORY_SOCIAL", "Updates": "CATEGORY_UPDATES", "Forums": "CATEGORY_FORUMS", "Primary": "CATEGORY_PERSONAL" };
   if (!categoryMap[categoryName]) return;
   try { Gmail.Users.Threads.modify({ addLabelIds: [categoryMap[categoryName]] }, 'me', threadId); } catch (e) {}
 }
 
-/**
- * Scans your existing Gmail labels to provide the AI with context so it doesn't
- * create duplicate tags with slightly different spellings.
- */
 function getExistingTags(parentCategoryName) {
   const labels = GmailApp.getUserLabels(), existing = [];
   const prefix = parentCategoryName ? `${parentCategoryName}/` : '';
@@ -447,9 +392,6 @@ function getExistingTags(parentCategoryName) {
   return existing;
 }
 
-/**
- * Finds a label by name, or creates it if it doesn't exist yet.
- */
 function getOrCreateLabel(labelPath, baseTerm) {
   let label = GmailApp.getUserLabelByName(labelPath);
   if (label) return label; // Label exists, safe to return
