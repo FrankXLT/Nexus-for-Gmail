@@ -19,6 +19,9 @@ function installNexus() {
   // Step 3: Install update check
   checkForUpdates(); 
   
+  // Step 4: Install Auto Tag Filter
+  setupAutoTagFilter(); // <-- ADD THIS LINE
+
   Logger.log("========================================");
   Logger.log("INSTALLATION COMPLETE! Nexus is now active.");
   Logger.log("========================================");
@@ -66,23 +69,19 @@ function initializeDriveSystem() {
  * Silently builds all the necessary folders and sub-folders in the user's Gmail sidebar.
  */
 function initializeLabels() {
-  // Combine the core system labels with the parent directories
   const coreLabels = [
     CONFIG.LABEL_READY, CONFIG.LABEL_COMPLETE, CONFIG.LABEL_FAILED,
-    CONFIG.PARENT_LABEL_BUSINESS, CONFIG.PARENT_LABEL_PEOPLE,
-    CONFIG.PARENT_LABEL_FINANCIAL, CONFIG.PARENT_LABEL_PURPOSE
+    CONFIG.PARENT_LABEL_PURPOSE
   ];
 
-  // Dynamically generate the nested Purpose paths (e.g., 'Purpose/Receipts')
+  // Dynamically pull in the top-level entity folders
+  Object.keys(CONFIG.ENTITIES).forEach(entity => coreLabels.push(entity));
+
   CONFIG.DEFAULT_PURPOSES.forEach(purpose => {
     coreLabels.push(`${CONFIG.PARENT_LABEL_PURPOSE}/${purpose}`);
   });
 
   let existingCount = 0; let createdCount = 0;
-  
-  // Loop through the list and create the labels. 
-  // We wrap this in a try/catch block because Gmail's API can throw an error if a 
-  // label already exists in the Trash, which would otherwise crash the entire setup.
   coreLabels.forEach(labelName => {
     try {
       if (GmailApp.getUserLabelByName(labelName)) { 
@@ -150,14 +149,15 @@ function getDefaultPromptTemplate() {
 
 Task 1: Global Domain Info
 - Identify the Correspondent Name. Check existing list: [{{CORRESPONDENTS}}].
-- Entity Type: Determine if this correspondent is "Financial" (banks, lenders, credit cards), "Business" (companies, retail, services), or a "Person" (individual human).
+- Entity Type: Choose exactly ONE category from this list based on the correspondent:
+{{ENTITIES}}
 - Pick a brand color from this list: [{{COLORS}}]. Default to "Gray".
 
 Task 2: Email Specifics (Evaluate each EMAIL INDEX)
 For each email, provide:
 - index: The integer ID matching the EMAIL INDEX.
 - purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). Check list: [{{PURPOSES}}]. If you are unsure or it does not fit a clear category, return null.
-- category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "Person" and this is a conversational email, strongly favor "Primary" over "Updates".
+- category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "People" and this is a conversational email, strongly favor "Primary" over "Updates".
 - isImportant: Boolean ({{IMPORTANT_RULE}})
 - isStarred: Boolean ({{STARRED_RULE}})
 
@@ -221,4 +221,50 @@ function isNewerVersion(latest, current) {
     if (lParts[i] < (cParts[i] || 0)) return false;
   }
   return false;
+}
+
+/**
+ * Uses the Advanced Gmail API to create a native Gmail filter.
+ * This guarantees emails are tagged with ai-ready the millisecond they arrive.
+ */
+function setupAutoTagFilter() {
+  if (!CONFIG.AUTO_TAGGING || !CONFIG.AUTO_TAGGING.ENABLED) return;
+  
+  // We must get the system ID of the ai-ready label to attach it to a filter
+  const labels = Gmail.Users.Labels.list('me').labels;
+  const readyLabel = labels.find(l => l.name === CONFIG.LABEL_READY);
+  
+  if (!readyLabel) {
+    Logger.log("Error: Ready label not found. Run initializeLabels first.");
+    return;
+  }
+
+  // Check if we already built this filter so we don't create duplicates
+  const existingFilters = Gmail.Users.Settings.Filters.list('me').filter || [];
+  const hasExisting = existingFilters.some(f => 
+    f.action && f.action.addLabelIds && f.action.addLabelIds.includes(readyLabel.id)
+  );
+
+  if (hasExisting) {
+    Logger.log("Native Gmail auto-tag filter already exists. Skipping creation.");
+    return;
+  }
+
+  // Build the native Gmail search syntax (e.g., "-category:promotions -category:social")
+  let excludeQuery = "";
+  if (CONFIG.AUTO_TAGGING.EXCLUDE_CATEGORIES && CONFIG.AUTO_TAGGING.EXCLUDE_CATEGORIES.length > 0) {
+    excludeQuery = CONFIG.AUTO_TAGGING.EXCLUDE_CATEGORIES.map(c => `-category:${c.toLowerCase()}`).join(" ");
+  }
+
+  const newFilter = {
+    criteria: { query: excludeQuery.trim() },
+    action: { addLabelIds: [readyLabel.id] }
+  };
+
+  try {
+    Gmail.Users.Settings.Filters.create(newFilter, 'me');
+    Logger.log("Native Gmail auto-tag filter created successfully.");
+  } catch (e) {
+    Logger.log("Failed to create Gmail filter: " + e.message);
+  }
 }
