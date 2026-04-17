@@ -2,87 +2,106 @@
 
 **An autonomous, AI-powered classification engine for Google Workspace.** *Co-architected by Frank Katzenberger and Gemini AI.*
 
-Nexus is a self-hosted, highly configurable Google Apps Script that acts as an intelligent assistant for your inbox. Instead of relying on rigid keyword filters, Nexus uses Google's Gemini LLMs to read, comprehend, and categorize your emails based on contextual meaning, automatically routing them into an organized, color-coded folder structure.
+Nexus is a self-hosted, highly configurable Google Apps Script that acts as an intelligent assistant for your inbox. Instead of relying on rigid, easily broken keyword filters, Nexus utilizes Google's Gemini LLMs to read, comprehend, and categorize your emails based on contextual meaning. It operates completely in the background, automatically routing messages into a dynamic, color-coded folder structure while keeping your data safely contained within your personal Google Workspace.
 
 ## ✨ Key Features
-* **Hyper-Efficient Processing:** Groups incoming emails by sender domain before processing, allowing it to classify dozens of emails while consuming minimal API tokens.
+* **Zero-Touch Autonomy:** Natively generates Gmail filters to tag incoming mail the millisecond it arrives, then processes it silently in the background.
 * **1-Click Installation:** Automatically builds its own Google Drive folder architecture, creates a dynamic System Prompt Document, and generates all necessary Gmail labels natively.
-* **Smart Sensitivity Controls:** Configurable rules prevent the AI from over-flagging unimportant newsletters as "Important" or "Starred".
-* **Deep Telemetry:** Automatically generates daily, visually styled HTML execution logs and raw `.txt` debug logs directly in your Google Drive.
-* **Model Agnostic:** Fully supports the Gemini 2.5 and 3.x series models. Choose between the blistering speed of `Flash-Lite` or the deep reasoning of `Pro`.
+* **Dynamic Taxonomy:** Completely customizable top-level entity routing (e.g., Business, Financial, People) using simple key-value configuration.
+* **Smart Blacklisting:** Absolute control over the AI. Explicitly forbid the engine from using certain labels or prevent it from creating unwanted new ones.
+* **Contextual Flags:** Intelligently applies "Important" markers based on required actions in the email body and restricts "Starred" markers to active conversations.
+* **Hyper-Efficient Processing:** Groups incoming emails by sender domain before processing, allowing it to classify dozens of emails simultaneously while consuming minimal API tokens.
+* **Deep Telemetry:** Automatically generates daily, visually styled HTML execution logs (with system cleanup tracking) and raw `.txt` debug logs directly in your Google Drive.
+* **Automated Update Checking:** Pings GitHub once a day and emails you automatically when a new release is available.
 
 ---
 
-## 🛠️ Prerequisites
-1. A **Google Account** (Gmail or Google Workspace).
-2. A **Google AI Studio API Key** (You can generate one for free at [aistudio.google.com](https://aistudio.google.com/)).
+## ⚙️ How the Script Works
+1. **The Interception:** When an email arrives, a native Gmail filter (created during installation) instantly applies an `ai-ready` label, excluding any system tabs you told it to ignore (like Promotions or Social).
+2. **The Sweep:** Every 5 minutes, the background script wakes up and gathers up to 40 `ai-ready` threads.
+3. **The Batching:** It sorts the emails by sender domain, packages them into optimized payloads, and injects your dynamic labels and blacklist rules into the prompt.
+4. **The Brain:** The payload is sent to the Gemini API, which evaluates the context of the email bodies. 
+5. **The Execution:** Nexus receives the JSON payload, applies the appropriate category/entity/purpose labels, colorizes them, applies action flags, drops the `ai-ready` label, and logs the telemetry.
+
+---
+
+## 🎛️ Configuration Variables (`Config.gs`)
+Nexus is built to be customized without touching the core engine. All behavioral adjustments are made in the `Config.gs` file.
+
+| Variable | Description |
+| :--- | :--- |
+| `VERSION` | The semantic version tracker used for automated update checks. |
+| `GITHUB_REPO` | The repository path Nexus checks daily for new releases. |
+| `GEMINI_MODEL` | The AI model used. Defaults to `gemini-2.5-flash-lite` for maximum cost-efficiency. |
+| `JOB_INTERVAL_MINUTES` | How frequently the background processing engine triggers (Default: 5). |
+| `DEBUG_MODE` | Toggles the generation of raw `.txt` AI output logs for troubleshooting. |
+| `ENTITIES` | A dictionary of your top-level parent folders and instructions for what belongs in them. |
+| `DEFAULT_PURPOSES` | A list of standard sub-categories (e.g., Receipts, Support, Subscriptions). |
+| `BLACKLIST` | Defines forbidden terms. `DO_NOT_USE` prevents the AI from assigning them entirely. `DO_NOT_CREATE` prevents the engine from making new Gmail labels for them. |
+| `AUTO_TAGGING` | Controls the native Gmail filter generation and defines which native tabs (e.g., Promotions) to skip. |
+| `FLAG_RULES` | Strict, Moderate, or Lenient rules dictating when the AI applies "Important" or "Starred" flags. |
+| `PALETTE` | The hex color codes used by the Advanced Gmail API to colorize labels. |
+
+---
+
+## 🛠️ Setup Architecture (`Setup.gs`)
+The installation and initialization logic is separated into `Setup.gs` to keep the main engine lightweight. 
+
+| Function | Purpose |
+| :--- | :--- |
+| `installNexus()` | The master orchestration function. The only function the user needs to run manually. |
+| `initializeDriveSystem()` | Creates the "Email Classification Engine" master folder and the "System Prompt" Google Doc. |
+| `initializeLabels()` | Reads the `ENTITIES` and `DEFAULT_PURPOSES` in config to pre-build necessary Gmail labels safely. |
+| `setupAutoRun()` | Establishes the recurring 5-minute engine trigger and the daily update checker. |
+| `setupAutoTagFilter()` | Uses the Advanced Gmail API to create a permanent, native incoming mail filter for `ai-ready`. |
+| `checkForUpdates()` | Background utility that queries GitHub for new releases and sends an email notification. |
+| `resetSystemPrompt()` | A fail-safe utility to overwrite the Google Doc with factory default instructions if formatting is broken. |
+
+---
+
+## 🔑 Google API Setup
+
+Before installing Nexus, you need to prepare your Google environment:
+
+1. **Get a Gemini API Key:**
+   * Go to [Google AI Studio](https://aistudio.google.com/).
+   * Sign in with your Google account and click **Get API Key**.
+   * Create a new key and copy it. (This is free).
+
+2. **Enable the Advanced Gmail API:**
+   * Go to [script.google.com](https://script.google.com/) and create a **New Project**.
+   * In the left-hand sidebar, click the **+** icon next to **Services**.
+   * Scroll down, select **Gmail API**, and click **Add**. *(This allows Nexus to physically color-code your folders and create native filters).*
 
 ---
 
 ## 🚀 Installation Guide
 
-### Step 1: Create the Apps Script Project
-1. Go to [script.google.com](https://script.google.com/) and click **New Project**.
-2. Rename the project to `Nexus for Gmail`.
-3. In the left-hand sidebar, click the **+** icon next to *Services*, scroll down to **Gmail API**, and click **Add**. *(This enables Nexus to automatically color-code your folders).*
-
-### Step 2: Add the Codebase
-Create four separate script files (`.gs`) in your project and copy the code from this repository into them:
-* `Secrets.gs` *(Your API key goes here!)*
-* `Config.gs`
-* `Setup.gs`
-* `Main.gs`
-
-### Step 3: Run the 1-Click Installer
-1. Open `Secrets.gs` and paste your Gemini API Key into the variable. Click **Save** (the floppy disk icon).
-2. Look at the toolbar at the top of the editor. Select **`installNexus`** from the dropdown menu.
-3. Click **Run**. 
-4. *Note: Google will ask for permission to access your Drive and Gmail. Click **Review permissions**, choose your account, click **Advanced**, and select **Go to project (unsafe)** to grant access.*
-
-Check the Execution Log at the bottom of the screen. You will see an "INSTALLATION COMPLETE!" message along with a direct link to your newly generated AI System Prompt in Google Drive.
+1. **Add the Codebase:** Rename your Google Apps Script project to `Nexus for Gmail`. Create four separate script files (`.gs`) and copy the code from this GitHub repository into them:
+   * `Secrets.gs` 
+   * `Config.gs`
+   * `Setup.gs`
+   * `Main.gs`
+2. **Secure Your Secrets:** Open `Secrets.gs`. Paste your Gemini API Key and your preferred notification email address into the variables. Click **Save** (the floppy disk icon).
+3. **Run the 1-Click Installer:** * Look at the toolbar at the top of the editor. Select **`installNexus`** from the dropdown menu.
+   * Click **Run**. 
+   * *Note: Google will ask for permission to access your Drive and Gmail. Click **Review permissions**, choose your account, click **Advanced**, and select **Go to project (unsafe)** to grant access.*
+4. Check the Execution Log at the bottom of the screen. You will see an "INSTALLATION COMPLETE!" message along with a direct link to your newly generated AI System Prompt in Google Drive. 
 
 ---
-
-## ⚙️ How to Use Nexus
-
-1. **Tag Emails:** In Gmail, apply the label `ai-ready` to any emails you want Nexus to process.
-2. **Let it Run:** Every 5 minutes (or whatever interval you set in `Config.gs`), Nexus will silently sweep your inbox, gather the `ai-ready` emails, and classify them.
-3. **Review:** Nexus will remove the `ai-ready` tag, apply the appropriate `Purpose` and `Entity` folders, colorize them, mark them `ai-done`, and flag them as Important or Starred based on your sensitivity settings.
-4. **Edit the Brain:** Want to teach Nexus new tricks? Open the **"System Prompt - Email AI"** Google Document in your Google Drive and modify the instructions. The script will automatically adapt on its next run!
 
 ## 🧠 Customizing the AI's Brain (The Google Doc)
+You do not need to edit code to change how the AI categorizes mail. During installation, Nexus created a Google Document called **System Prompt - Email AI** in your Drive. 
 
-One of the most powerful features of Nexus is that you do not need to edit any code to change how the AI behaves. During installation, Nexus created a Google Document in your Drive called **System Prompt - Email AI** (located inside the `Email Classification Engine` folder).
+This document is the literal "brain" of the operation. Open it and add your own plain-English rules (e.g., *"If the email is a food delivery receipt, always set the category to 'Updates'."*). The engine reads this document live during every execution, meaning your custom instructions are adapted immediately.
 
-This document acts as the literal "brain" of the operation. Every time the script runs, it reads the text in this document to get its instructions. 
+*(Note: Do not delete the bracketed variables like `{{ENTITIES}}` or `{{PAYLOAD}}`, as the script uses these to inject your live data).*
 
-### How to Teach the AI New Tricks:
-1. Open the **System Prompt - Email AI** document in your Google Drive.
-2. Read through the existing plain-English instructions. 
-3. **Add your own rules!** For example, you can type a new line under Task 2 that says: *"If the email is from a food delivery service, always set the category to 'Updates'."* or *"If the email mentions a subscription renewal, automatically set isImportant to true."*
-4. **The Golden Rule:** Do NOT delete or alter the bracketed variables (like `{{PURPOSES}}`, `{{IMPORTANT_RULE}}`, or `{{PAYLOAD}}`). The background script specifically looks for these tags to dynamically inject your inbox data and configuration limits.
+### 🔄 Checking for Updates
+Nexus will automatically email you when a new release is published. To update:
+1. Check the [Releases page](../../releases) on this repository.
+2. Copy the updated code from GitHub and paste it over your existing `.gs` files. *(You rarely need to overwrite `Secrets.gs` or `Config.gs` unless explicitly stated in the release notes, keeping your personal settings perfectly intact!)*
 
-As soon as you type your changes into the Google Doc, they are instantly live. You don't need to click "save" or restart the script. The next time your 5-minute timer triggers, the AI will immediately start following your new rules. 
-
-*(Note: If you ever accidentally delete the document or mess up the formatting beyond repair, you can always open your Apps Script editor, select `resetSystemPrompt` from the dropdown, and hit Run to restore the factory default instructions).*
-
-## 🔄 Checking for Updates
-Because this script runs entirely within your personal Google account, it does not auto-update. 
-1. Open your `Config.gs` file and check the `VERSION` number at the top.
-2. Check the [Releases page](../../releases) on this repository.
-3. If a newer version is available, simply copy the updated code from GitHub and paste it over your existing `.gs` files. *(Note: You rarely need to overwrite `Secrets.gs` or `Config.gs` unless explicitly stated in the release notes, keeping your personal settings perfectly intact!)*
-
----
-
-## 🎛️ Configuration (`Config.gs`)
-Nexus is built to be customized. Open `Config.gs` to adjust:
-* **`GEMINI_MODEL`**: Swap between `gemini-2.5-flash`, `gemini-3.1-flash-lite-preview`, etc.
-* **`JOB_INTERVAL_MINUTES`**: Adjust how often the background script runs.
-* **`FLAG_RULES`**: Tweak the sensitivity (Strict, Moderate, Lenient) for how the AI decides an email is "Important" or "Starred."
-* **`DEFAULT_PURPOSES`**: Add or remove the standard sorting categories.
-* **`BLACKLIST`**: Take absolute control over what the AI is allowed to classify. Define an array of forbidden terms (e.g., 'Alerts', 'Spam', 'Unknown') and utilize two boolean controls:
-  * `DO_NOT_USE`: If true, the engine completely ignores the term if the AI suggests it.
-  * `DO_NOT_CREATE`: If true, the engine will use the term if you manually created the label in the past, but will strictly prevent the AI from generating a new label for it.
 ---
 
 ## 📜 License and Copyright
