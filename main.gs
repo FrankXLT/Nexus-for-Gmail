@@ -11,9 +11,25 @@ function mainPipeline() {
   const completeLabel = getOrCreateLabel(CONFIG.LABEL_COMPLETE);
   const failedLabel = getOrCreateLabel(CONFIG.LABEL_FAILED);
   
-  // If there is no 'ready' label, or it's empty, exit immediately to save processing power.
   if (!readyLabel) return;
-  const threads = readyLabel.getThreads(0, 40); 
+  const rawThreads = readyLabel.getThreads(0, 40); 
+  if (rawThreads.length === 0) return;
+
+  // CONFLICT RESOLUTION: Filter out zombie threads
+  const threads = [];
+  for (let i = 0; i < rawThreads.length; i++) {
+    const labels = rawThreads[i].getLabels();
+    const hasComplete = labels.some(l => l.getName() === CONFIG.LABEL_COMPLETE);
+    
+    if (hasComplete) {
+      // Thread has both ai-ready and ai-done. 
+      // Strip ai-ready so it stops clogging the queue, and do not process it.
+      rawThreads[i].removeLabel(readyLabel);
+    } else {
+      threads.push(rawThreads[i]);
+    }
+  }
+  
   if (threads.length === 0) return;
 
   // Retrieve the Drive folder IDs we stored during the setup phase
