@@ -256,35 +256,42 @@ function writeDailyLog(jobLog, logsFolderId) {
   const fileName = `Log_${dateStr}.html`;
   const files = folder.getFilesByName(fileName);
   
+  // Compact Base Wrapper
   let runHtml = `
-    <div style="border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; overflow: hidden; font-family: sans-serif;">
-      <div style="background-color: #f4f4f4; padding: 15px; border-bottom: 1px solid #ccc;">
-        <h3 style="margin: 0; color: #333;">Job Run: ${jobLog.startTime.toLocaleTimeString()}</h3>
-        <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Total API Calls: <strong>${jobLog.apiCalls}</strong></p>
+    <div style="border: 1px solid #ccc; border-radius: 4px; margin-bottom: 15px; overflow: hidden; font-family: sans-serif; font-size: 13px;">
+      
+      <div style="background-color: #f4f4f4; padding: 6px 10px; border-bottom: 1px solid #ccc; display: flex; justify-content: space-between; align-items: center;">
+        <strong style="color: #333; font-size: 13px;">Job Run: ${jobLog.startTime.toLocaleTimeString()}</strong>
+        <span style="color: #666; font-size: 12px;">API Calls: <strong>${jobLog.apiCalls}</strong></span>
       </div>`;
       
   for (let batch of jobLog.batches) {
     runHtml += `
-      <div style="background-color: #e8f0fe; padding: 10px 15px; border-bottom: 1px solid #ccc; border-top: 1px solid #ccc;">
-        <strong style="color: #1a73e8;">Batch: ${batch.domain}</strong>
-        <span style="font-size: 13px; color: #555; margin-left: 15px;">
-          API Calls: 1 &nbsp;|&nbsp; Time: ${batch.duration}s &nbsp;|&nbsp; Tokens: ${batch.tokens.total} (In: ${batch.tokens.prompt} / Out: ${batch.tokens.candidates})
+      <div style="background-color: #e8f0fe; padding: 4px 10px; border-bottom: 1px solid #ccc; border-top: 1px solid #ccc;">
+        <strong style="color: #1a73e8; font-size: 12px;">${batch.domain}</strong>
+        <span style="font-size: 11px; color: #555; margin-left: 10px;">
+          [Time: ${batch.duration}s | Tokens: ${batch.tokens.total}]
         </span>
       </div>
-      <table style="width: 100%; border-collapse: collapse; text-align: left;">
+      
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 12px;">
         <tr>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">Email Subject</th>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">Before Tags</th>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">After Tags</th>
+          <th style="padding: 4px 8px; border-bottom: 1px solid #ccc; background: #fafafa; width: 45%;">Email Subject</th>
+          <th style="padding: 4px 8px; border-bottom: 1px solid #ccc; background: #fafafa; width: 20%;">Before</th>
+          <th style="padding: 4px 8px; border-bottom: 1px solid #ccc; background: #fafafa; width: 35%;">After</th>
         </tr>`;
         
     for (let email of batch.emails) {
       runHtml += `
         <tr>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="${email.link}" target="_blank" style="color: #1a73e8; text-decoration: none;">${email.subject}</a></td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;"><span style="background: #e0e0e0; padding: 3px 6px; border-radius: 3px; font-size: 12px;">${email.before.join(", ")}</span></td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;">
-            ${email.after.map(tag => `<span style="background: ${tag.includes('failed') ? '#fce8e6' : '#e6f4ea'}; color: ${tag.includes('failed') ? '#c5221f' : '#137333'}; padding: 3px 6px; border-radius: 3px; font-size: 12px; display: inline-block; margin: 2px;">${tag}</span>`).join("")}
+          <td style="padding: 4px 8px; border-bottom: 1px solid #eee;">
+            <a href="${email.link}" target="_blank" style="color: #1a73e8; text-decoration: none;">${email.subject}</a>
+          </td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #eee;">
+            <span style="background: #e0e0e0; padding: 2px 4px; border-radius: 2px; font-size: 10px;">${email.before.join(", ")}</span>
+          </td>
+          <td style="padding: 4px 8px; border-bottom: 1px solid #eee;">
+            ${email.after.map(tag => `<span style="background: ${tag.includes('failed') ? '#fce8e6' : '#e6f4ea'}; color: ${tag.includes('failed') ? '#c5221f' : '#137333'}; padding: 2px 4px; border-radius: 2px; font-size: 10px; display: inline-block; margin: 1px;">${tag}</span>`).join("")}
           </td>
         </tr>`;
     }
@@ -298,7 +305,13 @@ function writeDailyLog(jobLog, logsFolderId) {
     let content = file.getBlob().getDataAsString();
     file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr}</h2>${runHtml}</body></html>`;
+    // Compact Main HTML Frame
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head>
+    <body style="padding: 10px; background-color: #f9f9f9; margin: 0;">
+      <h3 style="font-family: sans-serif; color: #222; margin-top: 0;">Email AI Processing Log - ${dateStr} <span style="font-size: 12px; font-weight: normal; color: #666;">(v${CONFIG.VERSION})</span></h3>
+      ${runHtml}
+    </body></html>`;
+    
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
