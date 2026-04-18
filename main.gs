@@ -45,12 +45,14 @@ function mainPipeline() {
   };
 
   // CONFLICT RESOLUTION: Filter out zombie threads and log them
+  // This prevents loops for already-processed emails or emails moved to Trash/Spam.
   const threads = [];
   for (let i = 0; i < rawThreads.length; i++) {
     const labels = rawThreads[i].getLabels();
     const hasComplete = labels.some(l => l.getName() === CONFIG.LABEL_COMPLETE);
+    const isTrashedOrSpam = rawThreads[i].isInTrash() || rawThreads[i].isInSpam();
     
-    if (hasComplete) {
+    if (hasComplete || isTrashedOrSpam) {
       rawThreads[i].removeLabel(readyLabel);
       const latestMessage = rawThreads[i].getMessages()[rawThreads[i].getMessages().length - 1];
       
