@@ -3,9 +3,6 @@
  * Contains the main execution pipeline and helper utilities.
  */
 function mainPipeline() {
-  // Check for updates silently in the background (runs once per 24 hours)
-  checkForUpdates();
-
   const readyLabel = GmailApp.getUserLabelByName(CONFIG.LABEL_READY);
   const completeLabel = getOrCreateLabel(CONFIG.LABEL_COMPLETE);
   const failedLabel = getOrCreateLabel(CONFIG.LABEL_FAILED);
