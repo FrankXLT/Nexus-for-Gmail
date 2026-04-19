@@ -524,10 +524,16 @@ function setSystemCategory(threadId, categoryName) {
 function getExistingTags(parentCategoryName) {
   const labels = GmailApp.getUserLabels(), existing = [];
   const prefix = parentCategoryName ? `${parentCategoryName}/` : '';
+  
   for (let i = 0; i < labels.length; i++) {
-    let name = labels[i].getName();
-    if (prefix && name.startsWith(prefix)) existing.push(name.replace(prefix, ''));
-    else if (!prefix) existing.push(name);
+    try {
+      let name = labels[i].getName();
+      if (prefix && name.startsWith(prefix)) existing.push(name.replace(prefix, ''));
+      else if (!prefix) existing.push(name);
+    } catch (e) {
+      // Silently skip any ghost label references (e.g., Object with id 88)
+      continue;
+    }
   }
   return existing;
 }
