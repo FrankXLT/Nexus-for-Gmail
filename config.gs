@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '1.4.0', 
+  VERSION: '2.0.0', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
@@ -33,7 +33,7 @@ const CONFIG = {
   
   // Execution Settings
   // Determines how frequently Google's servers wake up to run the script.
-  JOB_INTERVAL_MINUTES: 1, 
+  JOB_INTERVAL_MINUTES: 5, 
   
   // Debugging & Telemetry
   // When true, the script generates raw .txt files showing exactly what the AI returned.
@@ -108,11 +108,27 @@ const CONFIG = {
     EXCLUDE_CATEGORIES: ['Promotions', 'Social', 'Forums'] 
   },
 
+  // ==========================================
+  // QUOTA & BACKLOG MANAGEMENT
+  // Protects your Google limits when processing massive email backlogs.
+  // ==========================================
+  QUOTA_MANAGEMENT: {
+    // Emails received within this many hours bypass the throttle completely.
+    FRESH_WINDOW_HOURS: 72, 
+    
+    // Maximum Gmail API operations allowed per 24 hours. Once hit, older emails are paused.
+    // (Google's absolute hard limit is 20,000. 10,000 leaves plenty of room for normal Gmail use).
+    MAX_OPS_PER_DAY: 10000, 
+    
+    // Estimated operations per email processed (Fetching, adding 4+ labels, starring, removing ready, etc.)
+    OPS_PER_EMAIL: 10 
+  },
+
   // Safety & Throttle Limits
   // MAX_EMAILS_PER_BATCH: Prevents the AI prompt from becoming too large and timing out.
   // MAX_BATCHES_PER_RUN: Prevents the script from exceeding Google's 6-minute execution limit.
   MAX_EMAILS_PER_BATCH: 5, 
-  MAX_BATCHES_PER_RUN: 10,  
+  MAX_BATCHES_PER_RUN: 20,  
   
   // Google Drive Architecture
   // The master folder where logs and the system prompt are stored.
@@ -141,3 +157,12 @@ const CONFIG = {
     "Very Light Gray": { bg: "#efefef", text: "#000000" }, "White": { bg: "#ffffff", text: "#000000" }
   }
 };
+
+// =========================================================================
+// V2.0.0 SELF-TUNING ENGINE CONFIGURATION
+// =========================================================================
+const ENABLE_SELF_TUNING = true; 
+const CORRECTION_LABEL = "ai-correct"; 
+const CACHE_RETENTION_DAYS = 21; 
+const CACHE_FOLDER_NAME = "Cache";
+
