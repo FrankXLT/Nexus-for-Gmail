@@ -310,20 +310,20 @@ function migrateLabelsToEntities() {
     return;
   }
   
-  const prompt = \`You are an expert organizer. Map the following user email labels to the best matching entity category OR the '\${CONFIG.PARENT_LABEL_PURPOSE}' category.
+  const prompt = `You are an expert organizer. Map the following user email labels to the best matching entity category OR the '${CONFIG.PARENT_LABEL_PURPOSE}' category.
 If a label clearly represents a sender (like a business, person, bank) and fits into one of the entities, map it to that entity.
-If a label is a topic, category, or reason (like 'Receipts', 'Travel', 'Orders', 'Events') and is a good fit for a general purpose, map it to '\${CONFIG.PARENT_LABEL_PURPOSE}'.
+If a label is a topic, category, or reason (like 'Receipts', 'Travel', 'Orders', 'Events') and is a good fit for a general purpose, map it to '${CONFIG.PARENT_LABEL_PURPOSE}'.
 If multiple labels represent the same entity or purpose, group them to the primary one by returning the same mapped name. Treat slight variations (e.g., missing "The", apostrophes, suffixes like "Inc", singular/plural differences like "Update" vs "Updates", or synonyms like "Event Notices" vs "Events", "Order Updates" vs "Orders", "Credit Reports" vs "Credit") as the same entity/purpose.
 CRITICAL: If a label resolves to exactly 'Update' or 'Updates' (or its sublabel), map it to null as we only use the system Category for updates.
-If a label is already a sublabel (e.g., 'Business/Facebook' or '\${CONFIG.PARENT_LABEL_PURPOSE}/Orders') but belongs in a different entity or needs deduplication/renaming, map 'entity' to the new entity/Purpose and 'newName' to the base name ('Facebook' or 'Orders'). If it's already under the correct entity and named properly without duplicates, map it to null.
+If a label is already a sublabel (e.g., 'Business/Facebook' or '${CONFIG.PARENT_LABEL_PURPOSE}/Orders') but belongs in a different entity or needs deduplication/renaming, map 'entity' to the new entity/Purpose and 'newName' to the base name ('Facebook' or 'Orders'). If it's already under the correct entity and named properly without duplicates, map it to null.
 
 Available Entities:
-\${entityKeys.join(', ')}
+${entityKeys.join(', ')}
 Special:
-\${CONFIG.PARENT_LABEL_PURPOSE}
+${CONFIG.PARENT_LABEL_PURPOSE}
 
 Labels to evaluate:
-\${labelsToMap.join(', ')}
+${labelsToMap.join(', ')}
 
 Return ONLY a raw JSON object mapping the original label name to an object with 'entity' and 'newName' (if merging or extracting base name, else same as original label name), or null if it shouldn't be moved.
 Format:
@@ -332,9 +332,9 @@ Format:
   "Label2": null,
   "Business/Facebook": { "entity": "Social", "newName": "Facebook" },
   "Label3 (duplicate)": { "entity": "Business", "newName": "Label1" },
-  "\${CONFIG.PARENT_LABEL_PURPOSE}/Event Notices": { "entity": "\${CONFIG.PARENT_LABEL_PURPOSE}", "newName": "Events" },
+  "${CONFIG.PARENT_LABEL_PURPOSE}/Event Notices": { "entity": "${CONFIG.PARENT_LABEL_PURPOSE}", "newName": "Events" },
   "Update": null
-}\`;
+}`;
 
   const apiKey = SECRETS.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
@@ -342,7 +342,7 @@ Format:
     return;
   }
 
-  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${apiKey}\`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const payload = {
     "contents": [{ "parts": [{ "text": prompt }] }],
     "generationConfig": { "temperature": 0.1 }
@@ -360,7 +360,7 @@ Format:
   
   if (data.candidates && data.candidates.length > 0) {
     let text = data.candidates[0].content.parts[0].text;
-    text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
     try {
       const mappings = JSON.parse(text);
       for (const oldName in mappings) {
@@ -370,12 +370,12 @@ Format:
           if (baseName.includes('/')) {
             baseName = baseName.split('/').pop();
           }
-          const newPath = \`\${mapping.entity}/\${baseName}\`;
+          const newPath = `${mapping.entity}/${baseName}`;
           
           // Skip if the new path is the exact same as the old name
           if (newPath === oldName) continue;
 
-          Logger.log(\`Migrating: \${oldName} -> \${newPath}\`);
+          Logger.log(`Migrating: ${oldName} -> ${newPath}`);
           
           const oldLabel = GmailApp.getUserLabelByName(oldName);
           let newLabel = GmailApp.getUserLabelByName(newPath);

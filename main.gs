@@ -334,11 +334,11 @@ function writeDebugLog(logText, debugFolderId) {
   try {
     const folder = DriveApp.getFolderById(debugFolderId);
     const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
-    const fileName = \`Debug_\${dateStr}.txt\`;
+    const fileName = `Debug_${dateStr}.txt`;
     const files = folder.getFilesByName(fileName);
     
     const timestamp = new Date().toLocaleTimeString();
-    const formattedLog = \`\\n==========================================\\n[\${timestamp}]\\n\${logText}\\n\`;
+    const formattedLog = `\n==========================================\n[${timestamp}]\n${logText}\n`;
     
     if (files.hasNext()) {
       let file = files.next();
@@ -360,7 +360,7 @@ function writeDebugLog(logText, debugFolderId) {
 function writeDailyLog(jobLog, logsFolderId) {
   const folder = DriveApp.getFolderById(logsFolderId);
   const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
-  const fileName = \`Log_\${dateStr}.html\`;
+  const fileName = `Log_${dateStr}.html`;
   const files = folder.getFilesByName(fileName);
   
   const escapeHtml = (str) => {
@@ -368,7 +368,7 @@ function writeDailyLog(jobLog, logsFolderId) {
   };
 
   // Advanced CSS Block (Light/Dark Mode)
-  const cssStyles = \`
+  const cssStyles = `
     <style>
       :root {
         --bg-page: #f9f9f9; --text-main: #222; --text-sub: #666; --bg-card: #fff; --border: #ccc;
@@ -406,76 +406,76 @@ function writeDailyLog(jobLog, logsFolderId) {
       details summary { cursor: pointer; color: var(--text-sub); font-weight: bold; outline: none; }
       .debug-box { margin-top: 5px; padding: 8px; background: var(--bg-debug); color: var(--text-debug); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; font-family: monospace; font-size: 11px;}
     </style>
-  \`;
+  `;
 
-  let runHtml = \`<div class="card">
+  let runHtml = `<div class="card">
       <div class="header">
-        <strong>Job Run: \${jobLog.startTime.toLocaleTimeString()}</strong>
-        <span style="font-size: 12px;">Ops Used (24h): <strong>\${jobLog.quota ? jobLog.quota.opsUsed : 0} / \${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>\${jobLog.apiCalls}</strong></span>
-      </div>\`;
+        <strong>Job Run: ${jobLog.startTime.toLocaleTimeString()}</strong>
+        <span style="font-size: 12px;">Ops Used (24h): <strong>${jobLog.quota ? jobLog.quota.opsUsed : 0} / ${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>${jobLog.apiCalls}</strong></span>
+      </div>`;
       
   for (let batch of jobLog.batches) {
     let hasFailure = batch.emails.some(e => e.after.some(tag => tag.toLowerCase().includes('failed')));
     let batchClass = hasFailure ? 'batch-hdr batch-fail' : 'batch-hdr batch-success';
 
-    runHtml += \`
-      <div class="\${batchClass}">
-        <strong>\${batch.domain}</strong>
-        <span style="font-size: 11px; margin-left: 10px;">[Time: \${batch.duration}s | Tokens: \${batch.tokens.total}]</span>
+    runHtml += `
+      <div class="${batchClass}">
+        <strong>${batch.domain}</strong>
+        <span style="font-size: 11px; margin-left: 10px;">[Time: ${batch.duration}s | Tokens: ${batch.tokens.total}]</span>
       </div>
       <table>
         <tr>
           <th style="width: 40%;">Email Subject</th>
           <th style="width: 20%;">Before</th>
           <th style="width: 40%;">After</th>
-        </tr>\`;
+        </tr>`;
         
     for (let email of batch.emails) {
       let linkedTags = email.after.map(tag => {
         let isFail = tag.toLowerCase().includes('failed') || tag.toLowerCase().includes('skipped');
         let tagClass = isFail ? 'tag tag-fail' : 'tag tag-after';
         let searchQuery = encodeURIComponent('label:' + tag.replace('Category: ', 'category:').replace('Important', '^i').replace('Starred', '^s'));
-        return \`<a href="https://mail.google.com/mail/u/0/#search/\${searchQuery}" target="_blank" class="\${tagClass}">\${tag}</a>\`;
+        return `<a href="https://mail.google.com/mail/u/0/#search/${searchQuery}" target="_blank" class="${tagClass}">${tag}</a>`;
       }).join("");
 
-      runHtml += \`
+      runHtml += `
         <tr>
           <td>
-            <a href="\${email.link}" target="_blank" class="subject-link">\${email.subject}</a>
-            <span class="snippet">\${email.snippet ? email.snippet : ''}</span>
+            <a href="${email.link}" target="_blank" class="subject-link">${email.subject}</a>
+            <span class="snippet">${email.snippet ? email.snippet : ''}</span>
           </td>
-          <td><span class="tag tag-before">\${email.before.join(", ")}</span></td>
-          <td>\${linkedTags}</td>
-        </tr>\`;
+          <td><span class="tag tag-before">${email.before.join(", ")}</span></td>
+          <td>${linkedTags}</td>
+        </tr>`;
     }
-    runHtml += \`</table>\`;
+    runHtml += `</table>`;
     
     // Accordion for inline debug
     if (batch.debug) {
-      runHtml += \`
+      runHtml += `
         <div style="padding: 4px 8px; border-bottom: 1px solid var(--border);">
           <details>
             <summary>View Raw API Debug Info</summary>
-            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\\n\${escapeHtml(batch.debug.prompt)}\\n\\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\\n\${escapeHtml(batch.debug.response)}</div>
+            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\n${escapeHtml(batch.debug.prompt)}\n\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\n${escapeHtml(batch.debug.response)}</div>
           </details>
-        </div>\`;
+        </div>`;
     }
   }
   
-  runHtml += \`</div>\`;
+  runHtml += `</div>`;
 
   if (files.hasNext()) {
     let file = files.next();
     let content = file.getBlob().getDataAsString();
-    file.setContent(content.replace("</body>", runHtml + "\\n</body>"));
+    file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = \`<!DOCTYPE html><html><head><title>Classification Log: \${dateStr}</title>
-    \${cssStyles}
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title>
+    ${cssStyles}
     </head>
     <body>
-      <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - \${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v\${CONFIG.VERSION})</span></h3>
-      \${runHtml}
-    </body></html>\`;
+      <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - ${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v${CONFIG.VERSION})</span></h3>
+      ${runHtml}
+    </body></html>`;
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
@@ -491,7 +491,7 @@ function buildBatchPayload(threads) {
   for (let i = 0; i < threads.length; i++) {
     const msgs = threads[i].getMessages();
     const msg = msgs[msgs.length - 1];
-    text += \`\\n--- EMAIL INDEX: \${i} ---\\nSpecific Sender: \${msg.getFrom()}\\nSubject: \${msg.getSubject()}\\nBody: \${msg.getPlainBody().substring(0, 1500)}\\n\`; 
+    text += `\n--- EMAIL INDEX: ${i} ---\nSpecific Sender: ${msg.getFrom()}\nSubject: ${msg.getSubject()}\nBody: ${msg.getPlainBody().substring(0, 1500)}\n`; 
   }
   return text;
 }
@@ -503,7 +503,7 @@ function buildBatchPayload(threads) {
  * Importance: This function interacts directly with the AI model to determine email classifications.
  */
 function classifySenderBatch(finalPromptText, debugFolderId) {
-  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${SECRETS.GEMINI_API_KEY}\`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${SECRETS.GEMINI_API_KEY}`;
   const payload = { contents: [{ parts: [{ text: finalPromptText }] }] };
   const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
 
@@ -531,23 +531,23 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
     
     if (json.candidates && json.candidates.length > 0) {
       let responseText = json.candidates[0].content.parts[0].text.trim();
-      let cleanText = responseText.replace(/^\`\`\`json/i, '').replace(/\`\`\`$/i, '').trim();
+      let cleanText = responseText.replace(/^```json/i, '').replace(/```$/i, '').trim();
       
       if (CONFIG.DEBUG_MODE) {
-        writeDebugLog(\`SUCCESSFUL API CALL\\nDuration: \${duration}s | Tokens: \${tokens.total}\\nRaw AI Output:\\n\${responseText}\`, debugFolderId);
+        writeDebugLog(`SUCCESSFUL API CALL\nDuration: ${duration}s | Tokens: ${tokens.total}\nRaw AI Output:\n${responseText}`, debugFolderId);
       }
       
       return { success: true, data: JSON.parse(cleanText), duration: duration, tokens: tokens, debug: debugData };
     } else {
-      if (CONFIG.DEBUG_MODE) writeDebugLog(\`WARNING: API RETURNED NO CANDIDATES\\nDuration: \${duration}s\\nRaw HTTP Response:\\n\${rawResponse}\`, debugFolderId);
+      if (CONFIG.DEBUG_MODE) writeDebugLog(`WARNING: API RETURNED NO CANDIDATES\nDuration: ${duration}s\nRaw HTTP Response:\n${rawResponse}`, debugFolderId);
       return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
     }
   } catch (e) { 
     duration = ((Date.now() - startTime) / 1000).toFixed(2);
     Logger.log("Error in AI call: " + e.toString()); 
     if (CONFIG.DEBUG_MODE) {
-      debugData = { prompt: finalPromptText, response: rawResponse + "\\n\\nError: " + e.toString() };
-      writeDebugLog(\`CRITICAL FAILURE\\nDuration: \${duration}s\\nError Message: \${e.toString()}\\n\\nRaw HTTP Response:\\n\${rawResponse}\\n\\nPrompt Sent:\\n\${finalPromptText}\`, debugFolderId);
+      debugData = { prompt: finalPromptText, response: rawResponse + "\n\nError: " + e.toString() };
+      writeDebugLog(`CRITICAL FAILURE\nDuration: ${duration}s\nError Message: ${e.toString()}\n\nRaw HTTP Response:\n${rawResponse}\n\nPrompt Sent:\n${finalPromptText}`, debugFolderId);
     }
     return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
   }
@@ -599,7 +599,7 @@ function setSystemCategory(threadId, categoryName) {
  */
 function getExistingTags(parentCategoryName) {
   const labels = GmailApp.getUserLabels(), existing = [];
-  const prefix = parentCategoryName ? \`\${parentCategoryName}/\` : '';
+  const prefix = parentCategoryName ? `${parentCategoryName}/` : '';
   
   for (let i = 0; i < labels.length; i++) {
     try {
@@ -692,23 +692,23 @@ function updateLabelBrandingColors() {
   const availableBgColors = CONFIG.BACKGROUND_COLORS.join(', ');
   const availableTextColors = CONFIG.TEXT_COLORS.join(', ');
 
-  const prompt = \`You are a branding expert. For each of the following entity names, identify their primary and secondary branding colors.
+  const prompt = `You are a branding expert. For each of the following entity names, identify their primary and secondary branding colors.
 Entity Names:
-\${names.join('\\n')}
+${names.join('\n')}
 
-Pick the closest matching background color from this list for the primary color: [\${availableBgColors}]. Default to "#ffffff".
-Pick the closest matching text color from this list for the secondary color: [\${availableTextColors}]. Default to "#000000".
+Pick the closest matching background color from this list for the primary color: [${availableBgColors}]. Default to "#ffffff".
+Pick the closest matching text color from this list for the secondary color: [${availableTextColors}]. Default to "#000000".
 
 Return ONLY a raw JSON object mapping the exact entity name to an object with 'backgroundColor' and 'textColor'.
 Format:
 {
   "Financial/Chase Bank": { "backgroundColor": "#123456", "textColor": "#ffffff" }
-}\`;
+}`;
 
   const apiKey = SECRETS.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') return;
 
-  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${apiKey}\`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
   const payload = {
     "contents": [{ "parts": [{ "text": prompt }] }],
     "generationConfig": { "temperature": 0.1 }
@@ -726,7 +726,7 @@ Format:
     const data = JSON.parse(response.getContentText());
     if (data.candidates && data.candidates.length > 0) {
       let text = data.candidates[0].content.parts[0].text;
-      text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+      text = text.replace(/```json/g, '').replace(/```/g, '').trim();
       const colors = JSON.parse(text);
       for (const label of batch) {
          if (colors[label.name]) {
