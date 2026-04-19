@@ -20,7 +20,7 @@ function installNexus() {
   checkForUpdates(); 
   
   // Step 4: Install Auto Tag Filter
-  setupAutoTagFilter(); // <-- ADD THIS LINE
+  setupAutoTagFilter(); 
 
   Logger.log("========================================");
   Logger.log("INSTALLATION COMPLETE! Nexus is now active.");
@@ -134,6 +134,11 @@ function setupAutoRun() {
   // Create the new time-based trigger using the interval from Config.gs
   ScriptApp.newTrigger('mainPipeline').timeBased().everyMinutes(CONFIG.JOB_INTERVAL_MINUTES).create();
   ScriptApp.newTrigger('checkForUpdates').timeBased().everyDays(7).create(); 
+  
+  // --- V2.0.0 SELF-TUNING TRIGGERS ---
+  ScriptApp.newTrigger('processCorrections').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('tuneSystemPrompt').timeBased().everyDays(1).atHour(2).create();
+  // -----------------------------------
 
   Logger.log(`Automation trigger successfully activated. Nexus will run every ${CONFIG.JOB_INTERVAL_MINUTES} minutes.`);
 }
@@ -179,7 +184,11 @@ Format:
 }
 
 Sender Domain: {{DOMAIN}}
-{{PAYLOAD}}`;
+{{PAYLOAD}}
+
+[START_AUTOTUNED_RULES]
+1. No autotuned rules generated yet.
+[END_AUTOTUNED_RULES]`;
 }
 
 /**
