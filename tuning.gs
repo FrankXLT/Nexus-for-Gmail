@@ -1,6 +1,8 @@
 /**
- * PHASE 1: CACHE MANAGEMENT
- * Appends the AI's original decision to today's cache file.
+ * Purpose: Appends the AI's original decision to today's cache file.
+ * Input: messageId (String), stateObj (Object)
+ * Output: Modifies the cache file in Google Drive.
+ * Importance: Saves the original AI classification state so it can be compared against user corrections later.
  */
 function saveStateToCache(messageId, stateObj) {
   const folder = getOrCreateCacheFolder();
@@ -15,8 +17,10 @@ function saveStateToCache(messageId, stateObj) {
 }
 
 /**
- * PHASE 2: THE CAPTURE SWEEP (Run on an Hourly Time-Driven Trigger)
- * Hunts for the ai-correct label, reads the cache, and writes the delta to the ledger.
+ * Purpose: Hunts for the ai-correct label, reads the cache, and writes the delta to the ledger.
+ * Input: None
+ * Output: Modifies the ledger file in Google Drive and removes the ai-correct label from threads.
+ * Importance: Captures user manual corrections to build a dataset for self-tuning.
  */
 function processCorrections() {
   if (!ENABLE_SELF_TUNING) return;
@@ -63,8 +67,10 @@ function processCorrections() {
 }
 
 /**
- * PHASE 3: THE SYNTHESIZER (Run on a Nightly Time-Driven Trigger)
- * Sends the ledger and current rules to Gemini, updating the Google Doc.
+ * Purpose: Sends the ledger and current rules to Gemini, updating the Google Doc with new rules.
+ * Input: None
+ * Output: Modifies the System Prompt Document and clears the ledger file.
+ * Importance: Synthesizes user corrections into automated rules, enabling the system to learn and adapt over time.
  */
 function tuneSystemPrompt() {
   if (!ENABLE_SELF_TUNING) return;
@@ -130,8 +136,10 @@ TASK:
 }
 
 /**
- * GARBAGE COLLECTION
- * Purges daily cache files older than CACHE_RETENTION_DAYS.
+ * Purpose: Purges daily cache files older than CACHE_RETENTION_DAYS.
+ * Input: None
+ * Output: Trashes old cache files in Google Drive.
+ * Importance: Prevents infinite storage growth by cleaning up stale data.
  */
 function cleanupCache() {
   const folder = getOrCreateCacheFolder();
@@ -184,7 +192,10 @@ function findInCacheFiles(messageId) {
 }
 
 /**
- * Safely locates the root Nexus folder using the ID saved during setup.
+ * Purpose: Safely locates the root Nexus folder using the ID saved during setup.
+ * Input: None
+ * Output: Returns the Folder object for the root Nexus directory.
+ * Importance: Provides a reliable way to find the master folder without relying on name matching.
  */
 function getRootNexusFolder() {
   const props = PropertiesService.getUserProperties();
@@ -197,7 +208,10 @@ function getRootNexusFolder() {
 }
 
 /**
- * A lightweight Gemini API caller dedicated to plain-text prompt synthesis.
+ * Purpose: A lightweight Gemini API caller dedicated to plain-text prompt synthesis.
+ * Input: promptText (String)
+ * Output: Returns the synthesized text from the Gemini model.
+ * Importance: Provides a focused API calling method specifically for generating rules without parsing complex JSON.
  */
 function callGeminiTuningAPI(promptText) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${SECRETS.GEMINI_API_KEY}`;

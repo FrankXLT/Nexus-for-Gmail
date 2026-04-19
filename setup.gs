@@ -1,11 +1,8 @@
 /**
- * NEXUS FOR GMAIL - SETUP & INITIALIZATION
- * Before the engine can run, it needs physical folders in Google Drive to store its logs, 
- * labels in Gmail to organize the emails, and a Document to act as its "brain." 
- * This file handles all of that scaffolding automatically so the user doesn't have to.
- 
- * 1-CLICK INSTALLER
- * The only function the user actually needs to run manually. It orchestrates the entire setup.
+ * Purpose: Orchestrates the entire setup process for Nexus for Gmail.
+ * Input: None
+ * Output: Calls functions to create Drive folders, a Google Doc, Gmail labels, and automation triggers.
+ * Importance: Acts as the 1-click installer so the user does not have to manually build the required scaffolding.
  */
 function installNexus() {
   Logger.log("Starting Nexus for Gmail installation...");
@@ -28,7 +25,10 @@ function installNexus() {
 }
 
 /**
- * Creates the Drive infrastructure and generates the Prompt Document.
+ * Purpose: Creates the Drive infrastructure and generates the Prompt Document.
+ * Input: None
+ * Output: Modifies Drive to create folders/docs and UserProperties to save IDs.
+ * Importance: Ensures the physical folders and documents required by the AI engine exist and their IDs are stored for future access.
  */
 function initializeDriveSystem() {
   // Use DriveApp to search for existing folders before creating new ones.
@@ -66,7 +66,10 @@ function initializeDriveSystem() {
 }
 
 /**
- * Silently builds all the necessary folders and sub-folders in the user's Gmail sidebar.
+ * Purpose: Silently builds all the necessary folders and sub-folders in the user's Gmail sidebar.
+ * Input: None
+ * Output: Modifies Gmail by creating required labels based on CONFIG.
+ * Importance: Pre-builds labels safely so that the AI categorization process does not fail when assigning labels.
  */
 function initializeLabels() {
   const coreLabels = [
@@ -98,8 +101,10 @@ function initializeLabels() {
 }
 
 /**
- * Utility function to let users overwrite their Prompt Document with the factory defaults
- * if they accidentally break the formatting in Google Docs.
+ * Purpose: Overwrites the Prompt Document with the factory defaults.
+ * Input: None
+ * Output: Modifies the Prompt Document content in Google Docs.
+ * Importance: Acts as a utility for users to recover their prompt formatting if they accidentally break it.
  */
 function resetSystemPrompt() {
   const props = PropertiesService.getUserProperties();
@@ -123,8 +128,10 @@ function resetSystemPrompt() {
 }
 
 /**
- * Tells Google's servers to automatically execute the `mainPipeline` function
- * on a recurring schedule without the user needing to have their computer turned on.
+ * Purpose: Sets up recurring triggers for various Nexus functions.
+ * Input: None
+ * Output: Creates new ScriptApp triggers and deletes old ones.
+ * Importance: Enables automated background execution of the main pipeline and maintenance tasks without user intervention.
  */
 function setupAutoRun() {
   const triggers = ScriptApp.getProjectTriggers();
@@ -138,16 +145,17 @@ function setupAutoRun() {
   // --- V2.0.0 SELF-TUNING TRIGGERS ---
   ScriptApp.newTrigger('processCorrections').timeBased().everyHours(1).create();
   ScriptApp.newTrigger('tuneSystemPrompt').timeBased().everyDays(1).atHour(2).create();
+  ScriptApp.newTrigger('updateLabelBrandingColors').timeBased().everyDays(1).atHour(3).create();
   // -----------------------------------
 
   Logger.log(`Automation trigger successfully activated. Nexus will run every ${CONFIG.JOB_INTERVAL_MINUTES} minutes.`);
 }
 
 /**
- * The core instructions for the Gemini Model.
- * Notice the {{DOUBLE_BRACKETS}}. The main engine will search for these tags and 
- * dynamically inject real data (like the specific sensitivity rules) right before 
- * sending it to the AI.
+ * Purpose: Returns the core instruction template for the Gemini Model.
+ * Input: None
+ * Output: Returns a string containing the prompt template with {{DOUBLE_BRACKETS}} placeholders.
+ * Importance: Provides the foundational instructions that tell the AI how to categorize emails, which are dynamically populated at runtime.
  */
 function getDefaultPromptTemplate() {
   return `Analyze this batch of emails from the same sender domain.
@@ -156,14 +164,10 @@ Task 1: Global Domain Info
 - Identify the Correspondent Name. Check existing list: [{{CORRESPONDENTS}}].
 - Entity Type: Choose exactly ONE category from this list based on the correspondent:
 {{ENTITIES}}
-- Identify the branding color, a primary and secondary color, of the entity that sent the email.
-- Pick the closest matching background color from this list for the primary color: [{{BG_COLORS}}]. Default to "#ffffff".
-- Pick the closest matching text color from this list for the secondary color: [{{TEXT_COLORS}}]. Default to "#000000".
-
 Task 2: Email Specifics (Evaluate each EMAIL INDEX)
 For each email, provide:
 - index: The integer ID matching the EMAIL INDEX.
-- purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). Check list: [{{PURPOSES}}]. If you are unsure or it does not fit a clear category, return null.
+- purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). MUST strictly check existing list: [{{PURPOSES}}] and reuse existing matching purposes even if slightly different (e.g., use 'Orders' instead of creating 'Order Updates', use 'Events' instead of 'Event Notices', match singular/plural). If you are unsure or it does not fit a clear category, return null.
 - category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "People" and this is a conversational email, strongly favor "Primary" over "Updates".
 - isImportant: Boolean ({{IMPORTANT_RULE}})
 - isStarred: Boolean ({{STARRED_RULE}})
@@ -173,8 +177,6 @@ Format:
 {
   "name": "Correspondent Name",
   "entityType": "Business", 
-  "backgroundColor": "#ffffff",
-  "textColor": "#000000",
   "emails": [
     {
       "index": 0,
@@ -195,8 +197,10 @@ Sender Domain: {{DOMAIN}}
 }
 
 /**
- * Checks the public GitHub repository for a new release.
- * Triggered automatically once a day via setupAutoRun.
+ * Purpose: Checks the public GitHub repository for a new release.
+ * Input: None
+ * Output: Sends an email notification if a newer version is found.
+ * Importance: Keeps the user informed about new updates automatically.
  */
 function checkForUpdates() {
   if (!CONFIG.GITHUB_REPO || !SECRETS.NOTIFICATION_EMAIL || SECRETS.NOTIFICATION_EMAIL === 'your-email@gmail.com') return;
@@ -223,7 +227,10 @@ function checkForUpdates() {
 }
 
 /**
- * Compares semantic versions (e.g., determines that 1.1.0 > 1.0.9).
+ * Purpose: Compares semantic version strings to determine if a newer version is available.
+ * Input: latest (String), current (String)
+ * Output: Returns a boolean indicating if the latest version is greater than the current version.
+ * Importance: Ensures updates are correctly identified based on version numbers.
  */
 function isNewerVersion(latest, current) {
   const lParts = latest.split('.').map(Number);
@@ -236,8 +243,10 @@ function isNewerVersion(latest, current) {
 }
 
 /**
- * Uses the Advanced Gmail API to create a native Gmail filter.
- * This guarantees emails are tagged with ai-ready the millisecond they arrive.
+ * Purpose: Uses the Advanced Gmail API to create a native Gmail filter for auto-tagging.
+ * Input: None
+ * Output: Creates a filter in Gmail settings to automatically apply the ready label to incoming emails.
+ * Importance: Guarantees emails are tagged with ai-ready the millisecond they arrive.
  */
 function setupAutoTagFilter() {
   if (!CONFIG.AUTO_TAGGING || !CONFIG.AUTO_TAGGING.ENABLED) return;
@@ -278,5 +287,118 @@ function setupAutoTagFilter() {
     Logger.log("Native Gmail auto-tag filter created successfully.");
   } catch (e) {
     Logger.log("Failed to create Gmail filter: " + e.message);
+  }
+}
+
+/**
+ * Purpose: One-time organization function to migrate and map existing Gmail labels into the new entity structure using AI.
+ * Input: None
+ * Output: Moves, renames, and groups existing labels to fall under defined entities or general purposes.
+ * Importance: Helps users organize an existing messy label structure to fit the Nexus framework.
+ */
+function migrateLabelsToEntities() {
+  const allLabels = GmailApp.getUserLabels();
+  const entityKeys = Object.keys(CONFIG.ENTITIES);
+  
+  // Exclude standard entities, Purpose parent (but allow its children for deduplication), and Category labels
+  const labelsToMap = allLabels
+    .map(l => l.getName())
+    .filter(name => !entityKeys.includes(name) && name !== CONFIG.PARENT_LABEL_PURPOSE && !name.startsWith('Category:'));
+  
+  if (labelsToMap.length === 0) {
+    Logger.log("No labels to migrate.");
+    return;
+  }
+  
+  const prompt = \`You are an expert organizer. Map the following user email labels to the best matching entity category OR the '\${CONFIG.PARENT_LABEL_PURPOSE}' category.
+If a label clearly represents a sender (like a business, person, bank) and fits into one of the entities, map it to that entity.
+If a label is a topic, category, or reason (like 'Receipts', 'Travel', 'Orders', 'Events') and is a good fit for a general purpose, map it to '\${CONFIG.PARENT_LABEL_PURPOSE}'.
+If multiple labels represent the same entity or purpose, group them to the primary one by returning the same mapped name. Treat slight variations (e.g., missing "The", apostrophes, suffixes like "Inc", singular/plural differences like "Update" vs "Updates", or synonyms like "Event Notices" vs "Events", "Order Updates" vs "Orders", "Credit Reports" vs "Credit") as the same entity/purpose.
+CRITICAL: If a label resolves to exactly 'Update' or 'Updates' (or its sublabel), map it to null as we only use the system Category for updates.
+If a label is already a sublabel (e.g., 'Business/Facebook' or '\${CONFIG.PARENT_LABEL_PURPOSE}/Orders') but belongs in a different entity or needs deduplication/renaming, map 'entity' to the new entity/Purpose and 'newName' to the base name ('Facebook' or 'Orders'). If it's already under the correct entity and named properly without duplicates, map it to null.
+
+Available Entities:
+\${entityKeys.join(', ')}
+Special:
+\${CONFIG.PARENT_LABEL_PURPOSE}
+
+Labels to evaluate:
+\${labelsToMap.join(', ')}
+
+Return ONLY a raw JSON object mapping the original label name to an object with 'entity' and 'newName' (if merging or extracting base name, else same as original label name), or null if it shouldn't be moved.
+Format:
+{
+  "Label1": { "entity": "Business", "newName": "Label1" },
+  "Label2": null,
+  "Business/Facebook": { "entity": "Social", "newName": "Facebook" },
+  "Label3 (duplicate)": { "entity": "Business", "newName": "Label1" },
+  "\${CONFIG.PARENT_LABEL_PURPOSE}/Event Notices": { "entity": "\${CONFIG.PARENT_LABEL_PURPOSE}", "newName": "Events" },
+  "Update": null
+}\`;
+
+  const apiKey = SECRETS.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
+    Logger.log("Error: GEMINI_API_KEY is not set in secrets.gs.");
+    return;
+  }
+
+  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${apiKey}\`;
+  const payload = {
+    "contents": [{ "parts": [{ "text": prompt }] }],
+    "generationConfig": { "temperature": 0.1 }
+  };
+  
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  
+  const response = UrlFetchApp.fetch(url, options);
+  const data = JSON.parse(response.getContentText());
+  
+  if (data.candidates && data.candidates.length > 0) {
+    let text = data.candidates[0].content.parts[0].text;
+    text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+    try {
+      const mappings = JSON.parse(text);
+      for (const oldName in mappings) {
+        const mapping = mappings[oldName];
+        if (mapping && mapping.entity && (entityKeys.includes(mapping.entity) || mapping.entity === CONFIG.PARENT_LABEL_PURPOSE)) {
+          let baseName = mapping.newName || oldName;
+          if (baseName.includes('/')) {
+            baseName = baseName.split('/').pop();
+          }
+          const newPath = \`\${mapping.entity}/\${baseName}\`;
+          
+          // Skip if the new path is the exact same as the old name
+          if (newPath === oldName) continue;
+
+          Logger.log(\`Migrating: \${oldName} -> \${newPath}\`);
+          
+          const oldLabel = GmailApp.getUserLabelByName(oldName);
+          let newLabel = GmailApp.getUserLabelByName(newPath);
+          if (!newLabel) {
+             newLabel = GmailApp.createLabel(newPath);
+             // Default color
+             try {
+                Gmail.Users.Labels.patch({ color: { backgroundColor: '#ffffff', textColor: '#000000' } }, 'me', Gmail.Users.Labels.list('me').labels.find(l => l.name === newPath).id);
+             } catch (e) {}
+          }
+          
+          if (oldLabel) {
+            const threads = oldLabel.getThreads();
+            for (let i = 0; i < threads.length; i += 100) {
+               const batch = threads.slice(i, i + 100);
+               newLabel.addToThreads(batch);
+               oldLabel.removeFromThreads(batch);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      Logger.log("Failed to parse AI response: " + e.message);
+    }
   }
 }

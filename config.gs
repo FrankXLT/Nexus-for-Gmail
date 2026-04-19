@@ -58,7 +58,10 @@ const CONFIG = {
     "Business": "Companies, retail stores, services, newsletters, and organizations.",
     "Education": "Establishments for education such as schools, school boards, colleges, and higher education.",
     "People": "Individual humans and personal contacts.",
-    "Health":"Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health."
+    "Health": "Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health.",
+    "Dining": "Restaurants, fast food, food delivery services, reservations, and dining receipts.",
+    "Social": "Social media platforms, dating apps, community forums, and networking sites.",
+    "TV-Streaming": "Video streaming services, television networks, movie platforms, and subscriptions like Netflix or Hulu."
   },
   
   // How strict the AI should be when deciding to flag an email.

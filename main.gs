@@ -1,6 +1,8 @@
 /**
- * NEXUS FOR GMAIL - CORE ENGINE
- * Contains the main execution pipeline and helper utilities.
+ * Purpose: Executes the core engine pipeline for categorizing emails.
+ * Input: None
+ * Output: Modifies Gmail threads (labels, stars, importance), reads/writes Drive properties and logs, makes API calls.
+ * Importance: This is the primary driver of the application, orchestrating thread fetching, API processing, and result application.
  */
 function mainPipeline() {
 
@@ -150,8 +152,6 @@ function mainPipeline() {
     let finalPrompt = promptTemplate
       .replace('{{CORRESPONDENTS}}', existingCorrespondentTags.join(', '))
       .replace('{{ENTITIES}}', entityPromptText.trim())
-      .replace('{{BG_COLORS}}', availableBgColors)
-      .replace('{{TEXT_COLORS}}', availableTextColors)
       .replace('{{PURPOSES}}', existingPurposeTags.join(', '))
       .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) 
       .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     
@@ -190,8 +190,8 @@ function mainPipeline() {
       if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name))) {
         correspondentLabel = getOrCreateLabel(correspondentPath, result.name);
         if (correspondentLabel) {
-          let bgColor = CONFIG.BACKGROUND_COLORS.includes(result.backgroundColor) ? result.backgroundColor : "#ffffff";
-          let textColor = CONFIG.TEXT_COLORS.includes(result.textColor) ? result.textColor : "#000000";
+          let bgColor = "#ffffff";
+          let textColor = "#000000";
           setLabelColor(correspondentPath, bgColor, textColor);
         }
       }
@@ -213,13 +213,18 @@ function mainPipeline() {
 
         // Blacklist Check: Purpose
         if (emailAI.purpose && !(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(emailAI.purpose))) {
-          let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
-          let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
-          
-          if (purposeLabel) {
-            setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
-            thread.addLabel(purposeLabel);
-            appliedTags.push(purposePath);
+          let pLower = emailAI.purpose.trim().toLowerCase();
+          if (pLower === 'update' || pLower === 'updates') {
+            emailAI.category = "Updates";
+          } else {
+            let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
+            let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
+            
+            if (purposeLabel) {
+              setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
+              thread.addLabel(purposeLabel);
+              appliedTags.push(purposePath);
+            }
           }
         }
 
@@ -297,6 +302,12 @@ function mainPipeline() {
 // UTILITY FUNCTIONS
 // ==========================================
 
+/**
+ * Purpose: Retrieves and updates the user's API quota data.
+ * Input: props (Properties)
+ * Output: Returns the current quota object.
+ * Importance: Ensures the script tracks API usage and prevents exceeding daily limits.
+ */
 function getAndUpdateQuota(props) {
   let quotaString = props.getProperty('QUOTA_DATA');
   let now = Date.now();
@@ -312,16 +323,22 @@ function getAndUpdateQuota(props) {
   return quota;
 }
 
+/**
+ * Purpose: Writes debug information to a text file in the debug folder.
+ * Input: logText (String), debugFolderId (String)
+ * Output: Creates or updates a debug log file in Google Drive.
+ * Importance: Provides a record of raw API interactions for troubleshooting.
+ */
 function writeDebugLog(logText, debugFolderId) {
   if (!CONFIG.DEBUG_MODE || !debugFolderId) return;
   try {
     const folder = DriveApp.getFolderById(debugFolderId);
     const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
-    const fileName = `Debug_${dateStr}.txt`;
+    const fileName = \`Debug_\${dateStr}.txt\`;
     const files = folder.getFilesByName(fileName);
     
     const timestamp = new Date().toLocaleTimeString();
-    const formattedLog = `\n==========================================\n[${timestamp}]\n${logText}\n`;
+    const formattedLog = \`\\n==========================================\\n[\${timestamp}]\\n\${logText}\\n\`;
     
     if (files.hasNext()) {
       let file = files.next();
@@ -334,10 +351,16 @@ function writeDebugLog(logText, debugFolderId) {
   }
 }
 
+/**
+ * Purpose: Generates an HTML report of the processed batches and saves it to Google Drive.
+ * Input: jobLog (Object), logsFolderId (String)
+ * Output: Creates or appends an HTML log file in the logs folder.
+ * Importance: Provides the user with a readable summary of actions taken by the script.
+ */
 function writeDailyLog(jobLog, logsFolderId) {
   const folder = DriveApp.getFolderById(logsFolderId);
   const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
-  const fileName = `Log_${dateStr}.html`;
+  const fileName = \`Log_\${dateStr}.html\`;
   const files = folder.getFilesByName(fileName);
   
   const escapeHtml = (str) => {
@@ -345,7 +368,7 @@ function writeDailyLog(jobLog, logsFolderId) {
   };
 
   // Advanced CSS Block (Light/Dark Mode)
-  const cssStyles = `
+  const cssStyles = \`
     <style>
       :root {
         --bg-page: #f9f9f9; --text-main: #222; --text-sub: #666; --bg-card: #fff; --border: #ccc;
@@ -383,92 +406,104 @@ function writeDailyLog(jobLog, logsFolderId) {
       details summary { cursor: pointer; color: var(--text-sub); font-weight: bold; outline: none; }
       .debug-box { margin-top: 5px; padding: 8px; background: var(--bg-debug); color: var(--text-debug); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; font-family: monospace; font-size: 11px;}
     </style>
-  `;
+  \`;
 
-  let runHtml = `<div class="card">
+  let runHtml = \`<div class="card">
       <div class="header">
-        <strong>Job Run: ${jobLog.startTime.toLocaleTimeString()}</strong>
-        <span style="font-size: 12px;">Ops Used (24h): <strong>${jobLog.quota ? jobLog.quota.opsUsed : 0} / ${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>${jobLog.apiCalls}</strong></span>
-      </div>`;
+        <strong>Job Run: \${jobLog.startTime.toLocaleTimeString()}</strong>
+        <span style="font-size: 12px;">Ops Used (24h): <strong>\${jobLog.quota ? jobLog.quota.opsUsed : 0} / \${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>\${jobLog.apiCalls}</strong></span>
+      </div>\`;
       
   for (let batch of jobLog.batches) {
     let hasFailure = batch.emails.some(e => e.after.some(tag => tag.toLowerCase().includes('failed')));
     let batchClass = hasFailure ? 'batch-hdr batch-fail' : 'batch-hdr batch-success';
 
-    runHtml += `
-      <div class="${batchClass}">
-        <strong>${batch.domain}</strong>
-        <span style="font-size: 11px; margin-left: 10px;">[Time: ${batch.duration}s | Tokens: ${batch.tokens.total}]</span>
+    runHtml += \`
+      <div class="\${batchClass}">
+        <strong>\${batch.domain}</strong>
+        <span style="font-size: 11px; margin-left: 10px;">[Time: \${batch.duration}s | Tokens: \${batch.tokens.total}]</span>
       </div>
       <table>
         <tr>
           <th style="width: 40%;">Email Subject</th>
           <th style="width: 20%;">Before</th>
           <th style="width: 40%;">After</th>
-        </tr>`;
+        </tr>\`;
         
     for (let email of batch.emails) {
       let linkedTags = email.after.map(tag => {
         let isFail = tag.toLowerCase().includes('failed') || tag.toLowerCase().includes('skipped');
         let tagClass = isFail ? 'tag tag-fail' : 'tag tag-after';
         let searchQuery = encodeURIComponent('label:' + tag.replace('Category: ', 'category:').replace('Important', '^i').replace('Starred', '^s'));
-        return `<a href="https://mail.google.com/mail/u/0/#search/${searchQuery}" target="_blank" class="${tagClass}">${tag}</a>`;
+        return \`<a href="https://mail.google.com/mail/u/0/#search/\${searchQuery}" target="_blank" class="\${tagClass}">\${tag}</a>\`;
       }).join("");
 
-      runHtml += `
+      runHtml += \`
         <tr>
           <td>
-            <a href="${email.link}" target="_blank" class="subject-link">${email.subject}</a>
-            <span class="snippet">${email.snippet ? email.snippet : ''}</span>
+            <a href="\${email.link}" target="_blank" class="subject-link">\${email.subject}</a>
+            <span class="snippet">\${email.snippet ? email.snippet : ''}</span>
           </td>
-          <td><span class="tag tag-before">${email.before.join(", ")}</span></td>
-          <td>${linkedTags}</td>
-        </tr>`;
+          <td><span class="tag tag-before">\${email.before.join(", ")}</span></td>
+          <td>\${linkedTags}</td>
+        </tr>\`;
     }
-    runHtml += `</table>`;
+    runHtml += \`</table>\`;
     
     // Accordion for inline debug
     if (batch.debug) {
-      runHtml += `
+      runHtml += \`
         <div style="padding: 4px 8px; border-bottom: 1px solid var(--border);">
           <details>
             <summary>View Raw API Debug Info</summary>
-            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\n${escapeHtml(batch.debug.prompt)}\n\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\n${escapeHtml(batch.debug.response)}</div>
+            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\\n\${escapeHtml(batch.debug.prompt)}\\n\\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\\n\${escapeHtml(batch.debug.response)}</div>
           </details>
-        </div>`;
+        </div>\`;
     }
   }
   
-  runHtml += `</div>`;
+  runHtml += \`</div>\`;
 
   if (files.hasNext()) {
     let file = files.next();
     let content = file.getBlob().getDataAsString();
-    file.setContent(content.replace("</body>", runHtml + "\n</body>"));
+    file.setContent(content.replace("</body>", runHtml + "\\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title>
-    ${cssStyles}
+    let baseHtml = \`<!DOCTYPE html><html><head><title>Classification Log: \${dateStr}</title>
+    \${cssStyles}
     </head>
     <body>
-      <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - ${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v${CONFIG.VERSION})</span></h3>
-      ${runHtml}
-    </body></html>`;
+      <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - \${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v\${CONFIG.VERSION})</span></h3>
+      \${runHtml}
+    </body></html>\`;
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
 
+/**
+ * Purpose: Constructs the text payload from a batch of email threads to send to the AI.
+ * Input: threads (Array)
+ * Output: Returns a formatted string containing sender, subject, and body snippets.
+ * Importance: Formats the email data in a structured way that the AI model can process.
+ */
 function buildBatchPayload(threads) {
   let text = "";
   for (let i = 0; i < threads.length; i++) {
     const msgs = threads[i].getMessages();
     const msg = msgs[msgs.length - 1];
-    text += `\n--- EMAIL INDEX: ${i} ---\nSpecific Sender: ${msg.getFrom()}\nSubject: ${msg.getSubject()}\nBody: ${msg.getPlainBody().substring(0, 1500)}\n`; 
+    text += \`\\n--- EMAIL INDEX: \${i} ---\\nSpecific Sender: \${msg.getFrom()}\\nSubject: \${msg.getSubject()}\\nBody: \${msg.getPlainBody().substring(0, 1500)}\\n\`; 
   }
   return text;
 }
 
+/**
+ * Purpose: Sends the prompt to the Gemini API and parses the response.
+ * Input: finalPromptText (String), debugFolderId (String)
+ * Output: Returns an object containing success status, parsed data, duration, token usage, and debug info.
+ * Importance: This function interacts directly with the AI model to determine email classifications.
+ */
 function classifySenderBatch(finalPromptText, debugFolderId) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${SECRETS.GEMINI_API_KEY}`;
+  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${SECRETS.GEMINI_API_KEY}\`;
   const payload = { contents: [{ parts: [{ text: finalPromptText }] }] };
   const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
 
@@ -496,33 +531,45 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
     
     if (json.candidates && json.candidates.length > 0) {
       let responseText = json.candidates[0].content.parts[0].text.trim();
-      let cleanText = responseText.replace(/^```json/i, '').replace(/```$/i, '').trim();
+      let cleanText = responseText.replace(/^\`\`\`json/i, '').replace(/\`\`\`$/i, '').trim();
       
       if (CONFIG.DEBUG_MODE) {
-        writeDebugLog(`SUCCESSFUL API CALL\nDuration: ${duration}s | Tokens: ${tokens.total}\nRaw AI Output:\n${responseText}`, debugFolderId);
+        writeDebugLog(\`SUCCESSFUL API CALL\\nDuration: \${duration}s | Tokens: \${tokens.total}\\nRaw AI Output:\\n\${responseText}\`, debugFolderId);
       }
       
       return { success: true, data: JSON.parse(cleanText), duration: duration, tokens: tokens, debug: debugData };
     } else {
-      if (CONFIG.DEBUG_MODE) writeDebugLog(`WARNING: API RETURNED NO CANDIDATES\nDuration: ${duration}s\nRaw HTTP Response:\n${rawResponse}`, debugFolderId);
+      if (CONFIG.DEBUG_MODE) writeDebugLog(\`WARNING: API RETURNED NO CANDIDATES\\nDuration: \${duration}s\\nRaw HTTP Response:\\n\${rawResponse}\`, debugFolderId);
       return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
     }
   } catch (e) { 
     duration = ((Date.now() - startTime) / 1000).toFixed(2);
     Logger.log("Error in AI call: " + e.toString()); 
     if (CONFIG.DEBUG_MODE) {
-      debugData = { prompt: finalPromptText, response: rawResponse + "\n\nError: " + e.toString() };
-      writeDebugLog(`CRITICAL FAILURE\nDuration: ${duration}s\nError Message: ${e.toString()}\n\nRaw HTTP Response:\n${rawResponse}\n\nPrompt Sent:\n${finalPromptText}`, debugFolderId);
+      debugData = { prompt: finalPromptText, response: rawResponse + "\\n\\nError: " + e.toString() };
+      writeDebugLog(\`CRITICAL FAILURE\\nDuration: \${duration}s\\nError Message: \${e.toString()}\\n\\nRaw HTTP Response:\\n\${rawResponse}\\n\\nPrompt Sent:\\n\${finalPromptText}\`, debugFolderId);
     }
     return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
   }
 }
 
+/**
+ * Purpose: Extracts the domain name from a raw sender string.
+ * Input: rawSender (String)
+ * Output: Returns the lowercased domain string.
+ * Importance: Used to group emails by sender domain for batch processing.
+ */
 function extractDomain(rawSender) {
   const match = rawSender.match(/<.+@(.+)>/);
   return match ? match[1].toLowerCase() : rawSender.split('@').pop().toLowerCase();
 }
 
+/**
+ * Purpose: Applies a specified background and text color to a Gmail label.
+ * Input: labelName (String), backgroundColor (String), textColor (String)
+ * Output: Modifies the color of the specified label via the Advanced Gmail API.
+ * Importance: Visually distinguishes labels in the Gmail interface.
+ */
 function setLabelColor(labelName, backgroundColor, textColor) {
   try {
     const labels = Gmail.Users.Labels.list('me').labels;
@@ -532,15 +579,27 @@ function setLabelColor(labelName, backgroundColor, textColor) {
   } catch (e) {}
 }
 
+/**
+ * Purpose: Assigns a built-in Gmail category to a thread.
+ * Input: threadId (String), categoryName (String)
+ * Output: Modifies the thread's labels via the Advanced Gmail API.
+ * Importance: Properly sorts emails into Gmail's native category tabs.
+ */
 function setSystemCategory(threadId, categoryName) {
   const categoryMap = { "Promotions": "CATEGORY_PROMOTIONS", "Social": "CATEGORY_SOCIAL", "Updates": "CATEGORY_UPDATES", "Forums": "CATEGORY_FORUMS", "Primary": "CATEGORY_PERSONAL" };
   if (!categoryMap[categoryName]) return;
   try { Gmail.Users.Threads.modify({ addLabelIds: [categoryMap[categoryName]] }, 'me', threadId); } catch (e) {}
 }
 
+/**
+ * Purpose: Retrieves existing sub-labels under a specified parent category.
+ * Input: parentCategoryName (String)
+ * Output: Returns an array of existing label names (without the parent prefix).
+ * Importance: Used to inform the AI about currently available tags to reuse.
+ */
 function getExistingTags(parentCategoryName) {
   const labels = GmailApp.getUserLabels(), existing = [];
-  const prefix = parentCategoryName ? `${parentCategoryName}/` : '';
+  const prefix = parentCategoryName ? \`\${parentCategoryName}/\` : '';
   
   for (let i = 0; i < labels.length; i++) {
     try {
@@ -555,6 +614,12 @@ function getExistingTags(parentCategoryName) {
   return existing;
 }
 
+/**
+ * Purpose: Retrieves an existing label or creates it if it does not exist and is not blacklisted.
+ * Input: labelPath (String), baseTerm (String)
+ * Output: Returns a GmailLabel object or null if blacklisted.
+ * Importance: Ensures the necessary label structure exists before trying to apply it to a thread.
+ */
 function getOrCreateLabel(labelPath, baseTerm) {
   let label = GmailApp.getUserLabelByName(labelPath);
   if (label) return label; // Label exists, safe to return
@@ -567,7 +632,10 @@ function getOrCreateLabel(labelPath, baseTerm) {
 }
 
 /**
- * Checks if a proposed term is on the user's blacklist.
+ * Purpose: Checks if a proposed term is on the user's blacklist.
+ * Input: term (String)
+ * Output: Returns a boolean indicating if the term is blacklisted.
+ * Importance: Prevents the creation or usage of labels that the user has explicitly forbidden.
  */
 function isBlacklisted(term) {
   if (!term || !CONFIG.BLACKLIST || !CONFIG.BLACKLIST.TERMS) return false;
@@ -575,6 +643,101 @@ function isBlacklisted(term) {
   return CONFIG.BLACKLIST.TERMS.some(t => t.toLowerCase() === lowerTerm);
 }
 
+/**
+ * Purpose: Logs the remaining daily quota for sending emails.
+ * Input: None
+ * Output: Logs the quota value to the Apps Script console.
+ * Importance: Useful for manual debugging and checking email limits.
+ */
 function what() {
   Logger.log(MailApp.getRemainingDailyQuota());
+}
+
+/**
+ * Purpose: Triggered daily to check and set branding colors for newly created entity labels.
+ * Input: None
+ * Output: Modifies Gmail label colors via the Advanced Gmail API.
+ * Importance: Ensures the visual aesthetic of newly created labels remains consistent with the system's branding without manual intervention.
+ */
+function updateLabelBrandingColors() {
+  let allLabelsResponse;
+  try {
+    allLabelsResponse = Gmail.Users.Labels.list('me');
+  } catch (e) {
+    return; // Advanced Gmail service might be unavailable
+  }
+  const allLabels = allLabelsResponse.labels || [];
+  
+  const entityKeys = Object.keys(CONFIG.ENTITIES);
+  const labelsToUpdate = [];
+  
+  for (const label of allLabels) {
+    if (label.type === 'user' && label.name.includes('/')) {
+      const parts = label.name.split('/');
+      if (entityKeys.includes(parts[0]) && parts.length === 2) {
+         if (label.color && label.color.backgroundColor === '#ffffff' && label.color.textColor === '#000000') {
+            labelsToUpdate.push(label);
+         } else if (!label.color) { 
+            labelsToUpdate.push(label);
+         }
+      }
+    }
+  }
+
+  if (labelsToUpdate.length === 0) return;
+  
+  const batch = labelsToUpdate.slice(0, 10);
+  const names = batch.map(l => l.name);
+  
+  const availableBgColors = CONFIG.BACKGROUND_COLORS.join(', ');
+  const availableTextColors = CONFIG.TEXT_COLORS.join(', ');
+
+  const prompt = \`You are a branding expert. For each of the following entity names, identify their primary and secondary branding colors.
+Entity Names:
+\${names.join('\\n')}
+
+Pick the closest matching background color from this list for the primary color: [\${availableBgColors}]. Default to "#ffffff".
+Pick the closest matching text color from this list for the secondary color: [\${availableTextColors}]. Default to "#000000".
+
+Return ONLY a raw JSON object mapping the exact entity name to an object with 'backgroundColor' and 'textColor'.
+Format:
+{
+  "Financial/Chase Bank": { "backgroundColor": "#123456", "textColor": "#ffffff" }
+}\`;
+
+  const apiKey = SECRETS.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') return;
+
+  const url = \`https://generativelanguage.googleapis.com/v1beta/models/\${CONFIG.GEMINI_MODEL}:generateContent?key=\${apiKey}\`;
+  const payload = {
+    "contents": [{ "parts": [{ "text": prompt }] }],
+    "generationConfig": { "temperature": 0.1 }
+  };
+  
+  const options = {
+    "method": "post",
+    "contentType": "application/json",
+    "payload": JSON.stringify(payload),
+    "muteHttpExceptions": true
+  };
+  
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const data = JSON.parse(response.getContentText());
+    if (data.candidates && data.candidates.length > 0) {
+      let text = data.candidates[0].content.parts[0].text;
+      text = text.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+      const colors = JSON.parse(text);
+      for (const label of batch) {
+         if (colors[label.name]) {
+             const c = colors[label.name];
+             if (CONFIG.BACKGROUND_COLORS.includes(c.backgroundColor) && CONFIG.TEXT_COLORS.includes(c.textColor)) {
+                 try {
+                     Gmail.Users.Labels.patch({ color: { backgroundColor: c.backgroundColor, textColor: c.textColor } }, 'me', label.id);
+                 } catch (e) {}
+             }
+         }
+      }
+    }
+  } catch (e) {}
 }
