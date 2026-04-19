@@ -3,6 +3,7 @@
  * Contains the main execution pipeline and helper utilities.
  */
 function mainPipeline() {
+
   const readyLabel = GmailApp.getUserLabelByName(CONFIG.LABEL_READY);
   const completeLabel = getOrCreateLabel(CONFIG.LABEL_COMPLETE);
   const failedLabel = getOrCreateLabel(CONFIG.LABEL_FAILED);
@@ -29,11 +30,15 @@ function mainPipeline() {
     props.setProperty('DEBUG_FOLDER_ID', debugFolderId);
   }
 
+  // --- QUOTA MANAGEMENT TRACKING ---
+  let quotaData = getAndUpdateQuota(props);
+
   // Initialize the log immediately
   let jobLog = {
     startTime: new Date(),
     apiCalls: 0,
-    batches: [] 
+    batches: [],
+    quota: quotaData 
   };
 
   // Special batch just for tracking conflict resolution
@@ -44,28 +49,51 @@ function mainPipeline() {
     emails: []
   };
 
-  // CONFLICT RESOLUTION: Filter out zombie threads and log them
+  // CONFLICT RESOLUTION & TIME WINDOW PRIORITIZATION
   const threads = [];
+  const now = Date.now();
+  const freshThreshold = now - (CONFIG.QUOTA_MANAGEMENT.FRESH_WINDOW_HOURS * 60 * 60 * 1000);
+
   for (let i = 0; i < rawThreads.length; i++) {
     const labels = rawThreads[i].getLabels();
     const hasComplete = labels.some(l => l.getName() === CONFIG.LABEL_COMPLETE);
+    const isTrashedOrSpam = rawThreads[i].isInTrash() || rawThreads[i].isInSpam();
     
-    if (hasComplete) {
+    if (hasComplete || isTrashedOrSpam) {
       rawThreads[i].removeLabel(readyLabel);
       const latestMessage = rawThreads[i].getMessages()[rawThreads[i].getMessages().length - 1];
       
       // Add it to our telemetry report
       skippedBatch.emails.push({
         subject: latestMessage.getSubject(),
+        snippet: "Thread bypassed by system cleanup protocols.",
         link: rawThreads[i].getPermalink(),
-        before: [CONFIG.LABEL_READY, CONFIG.LABEL_COMPLETE],
-        after: [CONFIG.LABEL_COMPLETE]
+        before: [CONFIG.LABEL_READY, hasComplete ? CONFIG.LABEL_COMPLETE : "Trash/Spam"],
+        after: [hasComplete ? CONFIG.LABEL_COMPLETE : "Skipped"]
       });
-    } else {
-      threads.push(rawThreads[i]);
+      continue;
     }
+
+    // Evaluate thread age against Quota
+    const msgDate = rawThreads[i].getMessages()[rawThreads[i].getMessages().length - 1].getDate().getTime();
+    const isFresh = msgDate >= freshThreshold;
+
+    if (!isFresh) {
+      // If it's old backlog, check if we have enough quota left to process it safely
+      if ((quotaData.opsUsed + CONFIG.QUOTA_MANAGEMENT.OPS_PER_EMAIL) > CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) {
+        // Quota exceeded for backlog. Leave ai-ready on it and skip it for now.
+        continue; 
+      }
+    }
+    
+    // If it is fresh, OR if it's backlog and we have quota, queue it up and reserve the ops.
+    threads.push(rawThreads[i]);
+    quotaData.opsUsed += CONFIG.QUOTA_MANAGEMENT.OPS_PER_EMAIL;
   }
   
+  // Save the updated quota math back to Drive properties immediately
+  props.setProperty('QUOTA_DATA', JSON.stringify(quotaData));
+
   // If we cleaned up any zombies, push them to the log report
   if (skippedBatch.emails.length > 0) {
     jobLog.batches.push(skippedBatch);
@@ -117,8 +145,8 @@ function mainPipeline() {
       .replace('{{ENTITIES}}', entityPromptText.trim())
       .replace('{{COLORS}}', availableColors)
       .replace('{{PURPOSES}}', existingPurposeTags.join(', '))
-      .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) // NEW
-      .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     // NEW
+      .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) 
+      .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     
       .replace('{{DOMAIN}}', domain)
       .replace('{{PAYLOAD}}', payloadData);
     
@@ -131,12 +159,13 @@ function mainPipeline() {
       domain: domain,
       duration: apiResult.duration,
       tokens: apiResult.tokens,
+      debug: apiResult.debug, // Added inline debug capture
       emails: []
     };
 
     const result = apiResult.data;
     
-if (apiResult.success && result && result.name && result.entityType && result.emails) {
+    if (apiResult.success && result && result.name && result.entityType && result.emails) {
       
       // Dynamic Routing: Use the AI's choice if it exists in our config
       let parentPath = result.entityType;
@@ -204,14 +233,43 @@ if (apiResult.success && result && result.name && result.entityType && result.em
           latestMessage.unstar();
         }
 
+        // --- V2.0.0 CACHE INJECTION ---
+        if (typeof ENABLE_SELF_TUNING !== 'undefined' && ENABLE_SELF_TUNING) {
+          saveStateToCache(latestMessage.getId(), {
+            labels: result.Purposes || [],
+            entity: result.Entity || "Unknown",
+            isImportant: result.isImportant || false,
+            isStarred: result.isStarred || false,
+            timestamp: new Date().getTime()
+          });
+        }
+
         thread.addLabel(completeLabel);
         thread.removeLabel(readyLabel);
 
         batchLog.emails.push({
           subject: latestMessage.getSubject(),
+          snippet: latestMessage.getPlainBody().substring(0, 60).replace(/\s+/g, ' ') + "...",
           link: thread.getPermalink(),
           before: [CONFIG.LABEL_READY],
           after: appliedTags
+        });
+      }
+    } else {
+      // THE QUARANTINE PROTOCOL (If the AI hallucinates bad JSON)
+      for (let k = 0; k < domainThreads.length; k++) {
+        const thread = domainThreads[k];
+        const failMsg = thread.getMessages()[thread.getMessages().length - 1];
+        
+        thread.addLabel(failedLabel);
+        thread.removeLabel(readyLabel);
+        
+        batchLog.emails.push({
+          subject: failMsg.getSubject(),
+          snippet: failMsg.getPlainBody().substring(0, 60).replace(/\s+/g, ' ') + "...",
+          link: thread.getPermalink(),
+          before: [CONFIG.LABEL_READY],
+          after: [CONFIG.LABEL_FAILED]
         });
       }
     }
@@ -227,6 +285,21 @@ if (apiResult.success && result && result.name && result.entityType && result.em
 // ==========================================
 // UTILITY FUNCTIONS
 // ==========================================
+
+function getAndUpdateQuota(props) {
+  let quotaString = props.getProperty('QUOTA_DATA');
+  let now = Date.now();
+  let quota = quotaString ? JSON.parse(quotaString) : null;
+
+  // 86400000 ms = 24 hours. Reset quota if a full day has passed.
+  if (!quota || (now - quota.windowStart > 86400000)) {
+    quota = {
+      windowStart: now,
+      opsUsed: 0
+    };
+  }
+  return quota;
+}
 
 function writeDebugLog(logText, debugFolderId) {
   if (!CONFIG.DEBUG_MODE || !debugFolderId) return;
@@ -256,39 +329,99 @@ function writeDailyLog(jobLog, logsFolderId) {
   const fileName = `Log_${dateStr}.html`;
   const files = folder.getFilesByName(fileName);
   
-  let runHtml = `
-    <div style="border: 1px solid #ccc; border-radius: 5px; margin-bottom: 30px; overflow: hidden; font-family: sans-serif;">
-      <div style="background-color: #f4f4f4; padding: 15px; border-bottom: 1px solid #ccc;">
-        <h3 style="margin: 0; color: #333;">Job Run: ${jobLog.startTime.toLocaleTimeString()}</h3>
-        <p style="margin: 5px 0 0 0; font-size: 14px; color: #666;">Total API Calls: <strong>${jobLog.apiCalls}</strong></p>
+  // Advanced CSS Block (Light/Dark Mode)
+  const cssStyles = `
+    <style>
+      :root {
+        --bg-page: #f9f9f9; --text-main: #222; --text-sub: #666; --bg-card: #fff; --border: #ccc;
+        --bg-header: #f4f4f4; --bg-batch: #e8f0fe; --bg-batch-fail: #fce8e6; 
+        --text-batch: #1a73e8; --text-batch-fail: #c5221f; --bg-th: #fafafa; --border-td: #eee;
+        --link: #1a73e8; --bg-tag: #e0e0e0; --text-tag: #333; --bg-tag-success: #e6f4ea;
+        --text-tag-success: #137333; --bg-tag-fail: #fce8e6; --text-tag-fail: #c5221f;
+        --bg-debug: #202124; --text-debug: #e8eaed;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg-page: #1e1e1e; --text-main: #e0e0e0; --text-sub: #aaa; --bg-card: #2d2d2d; --border: #444;
+          --bg-header: #383838; --bg-batch: #174ea6; --bg-batch-fail: #601410; 
+          --text-batch: #8ab4f8; --text-batch-fail: #f28b82; --bg-th: #333; --border-td: #444;
+          --link: #8ab4f8; --bg-tag: #555; --text-tag: #ddd; --bg-tag-success: #0d652d;
+          --text-tag-success: #81c995; --bg-tag-fail: #8c1d18; --text-tag-fail: #f28b82;
+          --bg-debug: #121212; --text-debug: #b5b5b5;
+        }
+      }
+      body { padding: 10px; background-color: var(--bg-page); margin: 0; font-family: sans-serif; }
+      .card { border: 1px solid var(--border); border-radius: 4px; margin-bottom: 15px; overflow: hidden; font-size: 13px; background: var(--bg-card); color: var(--text-main); }
+      .header { background-color: var(--bg-header); padding: 6px 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+      .batch-hdr { padding: 4px 10px; border-bottom: 1px solid var(--border); border-top: 1px solid var(--border); }
+      .batch-success { background-color: var(--bg-batch); color: var(--text-batch); }
+      .batch-fail { background-color: var(--bg-batch-fail); color: var(--text-batch-fail); }
+      table { table-layout: fixed; width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+      th { padding: 4px 8px; border-bottom: 1px solid var(--border); background: var(--bg-th); }
+      td { padding: 4px 8px; border-bottom: 1px solid var(--border-td); word-wrap: break-word; overflow-wrap: break-word; }
+      a.subject-link { color: var(--link); text-decoration: none; font-weight: bold; }
+      .snippet { font-size: 10px; color: var(--text-sub); font-style: italic; display: block; margin-top: 2px; }
+      .tag { display: inline-block; padding: 2px 4px; border-radius: 2px; font-size: 10px; margin: 1px; text-decoration: none; }
+      .tag-before { background: var(--bg-tag); color: var(--text-tag); }
+      .tag-after { background: var(--bg-tag-success); color: var(--text-tag-success); }
+      .tag-fail { background: var(--bg-tag-fail); color: var(--text-tag-fail); }
+      details summary { cursor: pointer; color: var(--text-sub); font-weight: bold; outline: none; }
+      .debug-box { margin-top: 5px; padding: 8px; background: var(--bg-debug); color: var(--text-debug); border-radius: 4px; overflow-x: auto; white-space: pre-wrap; font-family: monospace; font-size: 11px;}
+    </style>
+  `;
+
+  let runHtml = `${cssStyles}<div class="card">
+      <div class="header">
+        <strong>Job Run: ${jobLog.startTime.toLocaleTimeString()}</strong>
+        <span style="font-size: 12px;">Ops Used (24h): <strong>${jobLog.quota ? jobLog.quota.opsUsed : 0} / ${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>${jobLog.apiCalls}</strong></span>
       </div>`;
       
   for (let batch of jobLog.batches) {
+    let hasFailure = batch.emails.some(e => e.after.some(tag => tag.toLowerCase().includes('failed')));
+    let batchClass = hasFailure ? 'batch-hdr batch-fail' : 'batch-hdr batch-success';
+
     runHtml += `
-      <div style="background-color: #e8f0fe; padding: 10px 15px; border-bottom: 1px solid #ccc; border-top: 1px solid #ccc;">
-        <strong style="color: #1a73e8;">Batch: ${batch.domain}</strong>
-        <span style="font-size: 13px; color: #555; margin-left: 15px;">
-          API Calls: 1 &nbsp;|&nbsp; Time: ${batch.duration}s &nbsp;|&nbsp; Tokens: ${batch.tokens.total} (In: ${batch.tokens.prompt} / Out: ${batch.tokens.candidates})
-        </span>
+      <div class="${batchClass}">
+        <strong>${batch.domain}</strong>
+        <span style="font-size: 11px; margin-left: 10px;">[Time: ${batch.duration}s | Tokens: ${batch.tokens.total}]</span>
       </div>
-      <table style="width: 100%; border-collapse: collapse; text-align: left;">
+      <table>
         <tr>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">Email Subject</th>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">Before Tags</th>
-          <th style="padding: 10px; border-bottom: 2px solid #ccc; background: #fafafa;">After Tags</th>
+          <th style="width: 40%;">Email Subject</th>
+          <th style="width: 20%;">Before</th>
+          <th style="width: 40%;">After</th>
         </tr>`;
         
     for (let email of batch.emails) {
+      let linkedTags = email.after.map(tag => {
+        let isFail = tag.toLowerCase().includes('failed') || tag.toLowerCase().includes('skipped');
+        let tagClass = isFail ? 'tag tag-fail' : 'tag tag-after';
+        let searchQuery = encodeURIComponent('label:' + tag.replace('Category: ', 'category:').replace('Important', '^i').replace('Starred', '^s'));
+        return `<a href="https://mail.google.com/mail/u/0/#search/${searchQuery}" target="_blank" class="${tagClass}">${tag}</a>`;
+      }).join("");
+
       runHtml += `
         <tr>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="${email.link}" target="_blank" style="color: #1a73e8; text-decoration: none;">${email.subject}</a></td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;"><span style="background: #e0e0e0; padding: 3px 6px; border-radius: 3px; font-size: 12px;">${email.before.join(", ")}</span></td>
-          <td style="padding: 10px; border-bottom: 1px solid #eee;">
-            ${email.after.map(tag => `<span style="background: ${tag.includes('failed') ? '#fce8e6' : '#e6f4ea'}; color: ${tag.includes('failed') ? '#c5221f' : '#137333'}; padding: 3px 6px; border-radius: 3px; font-size: 12px; display: inline-block; margin: 2px;">${tag}</span>`).join("")}
+          <td>
+            <a href="${email.link}" target="_blank" class="subject-link">${email.subject}</a>
+            <span class="snippet">${email.snippet ? email.snippet : ''}</span>
           </td>
+          <td><span class="tag tag-before">${email.before.join(", ")}</span></td>
+          <td>${linkedTags}</td>
         </tr>`;
     }
     runHtml += `</table>`;
+    
+    // Accordion for inline debug
+    if (batch.debug) {
+      runHtml += `
+        <div style="padding: 4px 8px; border-bottom: 1px solid var(--border);">
+          <details>
+            <summary>View Raw API Debug Info</summary>
+            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\n${batch.debug.prompt}\n\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\n${batch.debug.response}</div>
+          </details>
+        </div>`;
+    }
   }
   
   runHtml += `</div>`;
@@ -298,7 +431,11 @@ function writeDailyLog(jobLog, logsFolderId) {
     let content = file.getBlob().getDataAsString();
     file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head><body style="padding: 20px; background-color: #f9f9f9;"><h2 style="font-family: sans-serif; color: #222;">Email AI Processing Log - ${dateStr}</h2>${runHtml}</body></html>`;
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head>
+    <body>
+      <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - ${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v${CONFIG.VERSION})</span></h3>
+      ${runHtml}
+    </body></html>`;
     folder.createFile(fileName, baseHtml, MimeType.HTML);
   }
 }
@@ -322,6 +459,7 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
   let startTime = Date.now();
   let duration = 0;
   let tokens = { total: 0, prompt: 0, candidates: 0 };
+  let debugData = null;
 
   try {
     const response = UrlFetchApp.fetch(url, options);
@@ -334,6 +472,10 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
       tokens.prompt = json.usageMetadata.promptTokenCount || 0;
       tokens.candidates = json.usageMetadata.candidatesTokenCount || 0;
     }
+
+    if (CONFIG.DEBUG_MODE) {
+      debugData = { prompt: finalPromptText, response: rawResponse };
+    }
     
     if (json.candidates && json.candidates.length > 0) {
       let responseText = json.candidates[0].content.parts[0].text.trim();
@@ -343,18 +485,19 @@ function classifySenderBatch(finalPromptText, debugFolderId) {
         writeDebugLog(`SUCCESSFUL API CALL\nDuration: ${duration}s | Tokens: ${tokens.total}\nRaw AI Output:\n${responseText}`, debugFolderId);
       }
       
-      return { success: true, data: JSON.parse(cleanText), duration: duration, tokens: tokens };
+      return { success: true, data: JSON.parse(cleanText), duration: duration, tokens: tokens, debug: debugData };
     } else {
       if (CONFIG.DEBUG_MODE) writeDebugLog(`WARNING: API RETURNED NO CANDIDATES\nDuration: ${duration}s\nRaw HTTP Response:\n${rawResponse}`, debugFolderId);
-      return { success: false, data: null, duration: duration, tokens: tokens };
+      return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
     }
   } catch (e) { 
     duration = ((Date.now() - startTime) / 1000).toFixed(2);
     Logger.log("Error in AI call: " + e.toString()); 
     if (CONFIG.DEBUG_MODE) {
+      debugData = { prompt: finalPromptText, response: rawResponse + "\n\nError: " + e.toString() };
       writeDebugLog(`CRITICAL FAILURE\nDuration: ${duration}s\nError Message: ${e.toString()}\n\nRaw HTTP Response:\n${rawResponse}\n\nPrompt Sent:\n${finalPromptText}`, debugFolderId);
     }
-    return { success: false, data: null, duration: duration, tokens: tokens };
+    return { success: false, data: null, duration: duration, tokens: tokens, debug: debugData };
   }
 }
 
@@ -407,4 +550,8 @@ function isBlacklisted(term) {
   if (!term || !CONFIG.BLACKLIST || !CONFIG.BLACKLIST.TERMS) return false;
   const lowerTerm = term.toLowerCase();
   return CONFIG.BLACKLIST.TERMS.some(t => t.toLowerCase() === lowerTerm);
+}
+
+function what() {
+  Logger.log(MailApp.getRemainingDailyQuota());
 }
