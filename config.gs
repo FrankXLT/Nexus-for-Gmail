@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '2.0.0', 
+  VERSION: '2.0.1', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
