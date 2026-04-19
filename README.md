@@ -40,7 +40,7 @@ Nexus is built to be customized without touching the core engine. All behavioral
 | `BLACKLIST` | Defines forbidden terms. `DO_NOT_USE` prevents the AI from assigning them entirely. `DO_NOT_CREATE` prevents the engine from making new Gmail labels for them. |
 | `AUTO_TAGGING` | Controls the native Gmail filter generation and defines which native tabs (e.g., Promotions) to skip. |
 | `FLAG_RULES` | Strict, Moderate, or Lenient rules dictating when the AI applies "Important" or "Starred" flags. |
-| `PALETTE` | The hex color codes used by the Advanced Gmail API to colorize labels. |
+| `BACKGROUND_COLORS` / `TEXT_COLORS` | The hex color codes used by the Advanced Gmail API to colorize labels. |
 | `QUOTA_MANAGEMENT` | Limits and thresholds to protect Google API quotas when processing massive email backlogs. |
 | `SELF-TUNING ENGINE`| Configuration variables for the V2.0.0 cache and correction system (e.g., `ENABLE_SELF_TUNING`). |
 

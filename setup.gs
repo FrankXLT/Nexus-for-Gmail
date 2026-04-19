@@ -156,7 +156,9 @@ Task 1: Global Domain Info
 - Identify the Correspondent Name. Check existing list: [{{CORRESPONDENTS}}].
 - Entity Type: Choose exactly ONE category from this list based on the correspondent:
 {{ENTITIES}}
-- Pick a brand color from this list: [{{COLORS}}]. Default to "Gray".
+- Identify the branding color, a primary and secondary color, of the entity that sent the email.
+- Pick the closest matching background color from this list for the primary color: [{{BG_COLORS}}]. Default to "#ffffff".
+- Pick the closest matching text color from this list for the secondary color: [{{TEXT_COLORS}}]. Default to "#000000".
 
 Task 2: Email Specifics (Evaluate each EMAIL INDEX)
 For each email, provide:
@@ -171,7 +173,8 @@ Format:
 {
   "name": "Correspondent Name",
   "entityType": "Business", 
-  "color": "Color",
+  "backgroundColor": "#ffffff",
+  "textColor": "#000000",
   "emails": [
     {
       "index": 0,

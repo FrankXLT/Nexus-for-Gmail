@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '2.0.2', 
+  VERSION: '2.0.3', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
@@ -116,8 +116,9 @@ const CONFIG = {
     FRESH_WINDOW_HOURS: 72, 
     
     // Maximum Gmail API operations allowed per 24 hours. Once hit, older emails are paused.
-    // (Google's absolute hard limit is 20,000. 10,000 leaves plenty of room for normal Gmail use).
-    MAX_OPS_PER_DAY: 10000, 
+    // Google's absolute hard limit is 20,000. 14,000 leaves plenty of room for normal Gmail use.
+    // This leaves 6000 ops for the user to interact with their inbox without hitting the limit (600 emails per 24 hours). Adjust based on your usage patterns.
+    MAX_OPS_PER_DAY: 14000, 
     
     // Estimated operations per email processed (Fetching, adding 4+ labels, starring, removing ready, etc.)
     OPS_PER_EMAIL: 10 
@@ -133,28 +134,29 @@ const CONFIG = {
   // The master folder where logs and the system prompt are stored.
   MASTER_FOLDER_NAME: 'Nexus for Gmail', 
   
-  // Advanced Gmail API Hex Palette
+  // Advanced Gmail API Hex Colors
   // Google Apps Script natively only supports 16 basic colors. We use the Advanced 
   // REST API and this specific hex palette to access Gmail's modern pastel colors.
-  PALETTE: {
-    "Red": { bg: "#fb4c2f", text: "#ffffff" }, "Brick Red": { bg: "#e66550", text: "#ffffff" },
-    "Soft Red": { bg: "#efa093", text: "#000000" }, "Pink": { bg: "#f691b3", text: "#000000" },
-    "Soft Pink": { bg: "#fbc8d9", text: "#000000" }, "Peach": { bg: "#f6c5be", text: "#000000" },
-    "Very Light Pink": { bg: "#fcdee8", text: "#000000" }, "Orange": { bg: "#ffad47", text: "#000000" },
-    "Golden Orange": { bg: "#ffbc6b", text: "#000000" }, "Soft Orange": { bg: "#ffd6a2", text: "#000000" },
-    "Light Orange": { bg: "#ffe6c7", text: "#000000" }, "Yellow": { bg: "#fad165", text: "#000000" },
-    "Golden Yellow": { bg: "#fcda83", text: "#000000" }, "Soft Yellow": { bg: "#fce8b3", text: "#000000" },
-    "Light Yellow": { bg: "#fef1d1", text: "#000000" }, "Green": { bg: "#16a766", text: "#ffffff" },
-    "Light Green": { bg: "#43d692", text: "#000000" }, "Teal": { bg: "#89d3b2", text: "#000000" },
-    "Light Teal": { bg: "#a0eac9", text: "#000000" }, "Mint": { bg: "#b9e4d0", text: "#000000" },
-    "Light Mint": { bg: "#c6f3de", text: "#000000" }, "Blue": { bg: "#4a86e8", text: "#ffffff" },
-    "Soft Blue": { bg: "#a4c2f4", text: "#000000" }, "Light Blue": { bg: "#c9daf8", text: "#000000" },
-    "Purple": { bg: "#a479e2", text: "#ffffff" }, "Soft Purple": { bg: "#d0bcf1", text: "#000000" },
-    "Light Purple": { bg: "#e4d7f5", text: "#000000" }, "Black": { bg: "#000000", text: "#ffffff" },
-    "Dark Gray": { bg: "#434343", text: "#ffffff" }, "Medium Gray": { bg: "#666666", text: "#ffffff" },
-    "Gray": { bg: "#999999", text: "#ffffff" }, "Light Gray": { bg: "#cccccc", text: "#000000" },
-    "Very Light Gray": { bg: "#efefef", text: "#000000" }, "White": { bg: "#ffffff", text: "#000000" }
-  }
+  BACKGROUND_COLORS: [
+    "#000000", "#434343", "#666666", "#999999", "#cccccc", "#efefef", "#f3f3f3", "#ffffff",
+    "#fb4c2f", "#ffad47", "#fad165", "#16a766", "#43d692", "#4a86e8", "#a479e2", "#f691b3",
+    "#f6c5be", "#ffe6c7", "#fef1d1", "#b9e4d0", "#c6f3de", "#c9daf8", "#e4d7f5", "#fcdee8",
+    "#efa093", "#ffd6a2", "#fce8b3", "#89d3b2", "#a0eac9", "#a4c2f4", "#d0bcf1", "#fbc8d9",
+    "#e66550", "#ffbc6b", "#fcda83", "#44b984", "#68dfa9", "#6d9eeb", "#b694e8", "#f7a7c0",
+    "#cc3a21", "#eaa041", "#f2c960", "#149e60", "#3dc789", "#3c78d8", "#8e63ce", "#e07798",
+    "#ac2b16", "#cf8933", "#d5ae49", "#0b804b", "#2a9c68", "#285bac", "#653e9b", "#b65775",
+    "#822111", "#a46a21", "#aa8831", "#076239", "#1a764d", "#1c4587", "#41236d", "#83334c"
+  ],
+  TEXT_COLORS: [
+    "#000000", "#434343", "#666666", "#999999", "#cccccc", "#efefef", "#f3f3f3", "#ffffff",
+    "#fb4c2f", "#ffad47", "#fad165", "#16a766", "#43d692", "#4a86e8", "#a479e2", "#f691b3",
+    "#f6c5be", "#ffe6c7", "#fef1d1", "#b9e4d0", "#c6f3de", "#c9daf8", "#e4d7f5", "#fcdee8",
+    "#efa093", "#ffd6a2", "#fce8b3", "#89d3b2", "#a0eac9", "#a4c2f4", "#d0bcf1", "#fbc8d9",
+    "#e66550", "#ffbc6b", "#fcda83", "#44b984", "#68dfa9", "#6d9eeb", "#b694e8", "#f7a7c0",
+    "#cc3a21", "#eaa041", "#f2c960", "#149e60", "#3dc789", "#3c78d8", "#8e63ce", "#e07798",
+    "#ac2b16", "#cf8933", "#d5ae49", "#0b804b", "#2a9c68", "#285bac", "#653e9b", "#b65775",
+    "#822111", "#a46a21", "#aa8831", "#076239", "#1a764d", "#1c4587", "#41236d", "#83334c"
+  ]
 };
 
 // =========================================================================

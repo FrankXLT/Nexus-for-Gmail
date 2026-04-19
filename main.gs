@@ -50,9 +50,12 @@ function mainPipeline() {
   };
 
   // CONFLICT RESOLUTION & TIME WINDOW PRIORITIZATION
-  const threads = [];
   const now = Date.now();
   const freshThreshold = now - (CONFIG.QUOTA_MANAGEMENT.FRESH_WINDOW_HOURS * 60 * 60 * 1000);
+
+  const buckets = {};
+  let domainCount = 0;
+  let threadsToProcess = 0;
 
   for (let i = 0; i < rawThreads.length; i++) {
     const labels = rawThreads[i].getLabels();
@@ -74,8 +77,8 @@ function mainPipeline() {
       continue;
     }
 
-    // Evaluate thread age against Quota
-    const msgDate = rawThreads[i].getMessages()[rawThreads[i].getMessages().length - 1].getDate().getTime();
+    const messages = rawThreads[i].getMessages();
+    const msgDate = messages[messages.length - 1].getDate().getTime();
     const isFresh = msgDate >= freshThreshold;
 
     if (!isFresh) {
@@ -85,10 +88,25 @@ function mainPipeline() {
         continue; 
       }
     }
-    
-    // If it is fresh, OR if it's backlog and we have quota, queue it up and reserve the ops.
-    threads.push(rawThreads[i]);
-    quotaData.opsUsed += CONFIG.QUOTA_MANAGEMENT.OPS_PER_EMAIL;
+
+    const senderRaw = messages[messages.length - 1].getFrom();
+    const domain = extractDomain(senderRaw);
+
+    if (!buckets[domain]) {
+      if (domainCount >= CONFIG.MAX_BATCHES_PER_RUN) {
+        // We've hit the max domains for this execution. Skip thread for now to avoid dropping it later.
+        continue;
+      }
+      buckets[domain] = [];
+      domainCount++;
+    }
+
+    if (buckets[domain].length < CONFIG.MAX_EMAILS_PER_BATCH) {
+      // It fits in the batch! Queue it up and reserve the ops.
+      buckets[domain].push(rawThreads[i]);
+      threadsToProcess++;
+      quotaData.opsUsed += CONFIG.QUOTA_MANAGEMENT.OPS_PER_EMAIL;
+    }
   }
   
   // Save the updated quota math back to Drive properties immediately
@@ -100,31 +118,20 @@ function mainPipeline() {
   }
 
   // If there are no actual threads to send to the AI, write the log (if zombies existed) and exit
-  if (threads.length === 0) {
+  if (threadsToProcess === 0) {
     if (jobLog.batches.length > 0) writeDailyLog(jobLog, logsFolderId);
     return;
   }
   
   const promptTemplate = DocumentApp.openById(promptDocId).getBody().getText();
 
-  const buckets = {};
-  for (let i = 0; i < threads.length; i++) {
-    const messages = threads[i].getMessages();
-    const senderRaw = messages[messages.length - 1].getFrom();
-    const domain = extractDomain(senderRaw);
-    
-    if (!buckets[domain]) buckets[domain] = [];
-    if (buckets[domain].length < CONFIG.MAX_EMAILS_PER_BATCH) {
-      buckets[domain].push(threads[i]);
-    }
-  }
-
   let existingCorrespondentTags = [];
   for (const entity of Object.keys(CONFIG.ENTITIES)) {
     existingCorrespondentTags.push(...getExistingTags(entity));
   }
   const existingPurposeTags = getExistingTags(CONFIG.PARENT_LABEL_PURPOSE);
-  const availableColors = Object.keys(CONFIG.PALETTE).join(', ');
+  const availableBgColors = CONFIG.BACKGROUND_COLORS.join(', ');
+  const availableTextColors = CONFIG.TEXT_COLORS.join(', ');
 
   let batchesProcessed = 0;
   
@@ -143,7 +150,8 @@ function mainPipeline() {
     let finalPrompt = promptTemplate
       .replace('{{CORRESPONDENTS}}', existingCorrespondentTags.join(', '))
       .replace('{{ENTITIES}}', entityPromptText.trim())
-      .replace('{{COLORS}}', availableColors)
+      .replace('{{BG_COLORS}}', availableBgColors)
+      .replace('{{TEXT_COLORS}}', availableTextColors)
       .replace('{{PURPOSES}}', existingPurposeTags.join(', '))
       .replace('{{IMPORTANT_RULE}}', CONFIG.FLAG_RULES.IMPORTANT) 
       .replace('{{STARRED_RULE}}', CONFIG.FLAG_RULES.STARRED)     
@@ -182,8 +190,9 @@ function mainPipeline() {
       if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name))) {
         correspondentLabel = getOrCreateLabel(correspondentPath, result.name);
         if (correspondentLabel) {
-          let colorProfile = CONFIG.PALETTE[result.color] || CONFIG.PALETTE["Gray"];
-          setLabelColor(correspondentPath, colorProfile.bg, colorProfile.text);
+          let bgColor = CONFIG.BACKGROUND_COLORS.includes(result.backgroundColor) ? result.backgroundColor : "#ffffff";
+          let textColor = CONFIG.TEXT_COLORS.includes(result.textColor) ? result.textColor : "#000000";
+          setLabelColor(correspondentPath, bgColor, textColor);
         }
       }
 
@@ -208,7 +217,7 @@ function mainPipeline() {
           let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
           
           if (purposeLabel) {
-            setLabelColor(purposePath, CONFIG.PALETTE["Dark Gray"].bg, CONFIG.PALETTE["Dark Gray"].text);
+            setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
             thread.addLabel(purposeLabel);
             appliedTags.push(purposePath);
           }
