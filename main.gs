@@ -305,7 +305,7 @@ function writeDebugLog(logText, debugFolderId) {
   if (!CONFIG.DEBUG_MODE || !debugFolderId) return;
   try {
     const folder = DriveApp.getFolderById(debugFolderId);
-    const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
+    const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
     const fileName = `Debug_${dateStr}.txt`;
     const files = folder.getFilesByName(fileName);
     
@@ -325,10 +325,14 @@ function writeDebugLog(logText, debugFolderId) {
 
 function writeDailyLog(jobLog, logsFolderId) {
   const folder = DriveApp.getFolderById(logsFolderId);
-  const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd");
+  const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
   const fileName = `Log_${dateStr}.html`;
   const files = folder.getFilesByName(fileName);
   
+  const escapeHtml = (str) => {
+    return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  };
+
   // Advanced CSS Block (Light/Dark Mode)
   const cssStyles = `
     <style>
@@ -370,7 +374,7 @@ function writeDailyLog(jobLog, logsFolderId) {
     </style>
   `;
 
-  let runHtml = `${cssStyles}<div class="card">
+  let runHtml = `<div class="card">
       <div class="header">
         <strong>Job Run: ${jobLog.startTime.toLocaleTimeString()}</strong>
         <span style="font-size: 12px;">Ops Used (24h): <strong>${jobLog.quota ? jobLog.quota.opsUsed : 0} / ${CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY}</strong> &nbsp;|&nbsp; API Calls: <strong>${jobLog.apiCalls}</strong></span>
@@ -418,7 +422,7 @@ function writeDailyLog(jobLog, logsFolderId) {
         <div style="padding: 4px 8px; border-bottom: 1px solid var(--border);">
           <details>
             <summary>View Raw API Debug Info</summary>
-            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\n${batch.debug.prompt}\n\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\n${batch.debug.response}</div>
+            <div class="debug-box"><span style="color: #8ab4f8;">// PROMPT SENT</span>\n${escapeHtml(batch.debug.prompt)}\n\n<span style="color: #8ab4f8;">// RAW RESPONSE</span>\n${escapeHtml(batch.debug.response)}</div>
           </details>
         </div>`;
     }
@@ -431,7 +435,9 @@ function writeDailyLog(jobLog, logsFolderId) {
     let content = file.getBlob().getDataAsString();
     file.setContent(content.replace("</body>", runHtml + "\n</body>"));
   } else {
-    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title></head>
+    let baseHtml = `<!DOCTYPE html><html><head><title>Classification Log: ${dateStr}</title>
+    ${cssStyles}
+    </head>
     <body>
       <h3 style="margin-top: 0; color: var(--text-main);">Email AI Processing Log - ${dateStr} <span style="font-size: 12px; font-weight: normal; color: var(--text-sub);">(v${CONFIG.VERSION})</span></h3>
       ${runHtml}

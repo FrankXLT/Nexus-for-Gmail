@@ -18,7 +18,7 @@ Nexus is a self-hosted, highly configurable Google Apps Script that acts as an i
 
 ## ⚙️ How the Script Works
 1. **The Interception:** When an email arrives, a native Gmail filter (created during installation) instantly applies an `ai-ready` label, excluding any system tabs you told it to ignore (like Promotions or Social).
-2. **The Sweep:** Every 5 minutes, the background script wakes up and gathers up to 40 `ai-ready` threads.
+2. **The Sweep:** Every 5 minutes, the background script wakes up and gathers up to 100 `ai-ready` threads (based on batch limits).
 3. **The Batching:** It sorts the emails by sender domain, packages them into optimized payloads, and injects your dynamic labels and blacklist rules into the prompt.
 4. **The Brain:** The payload is sent to the Gemini API, which evaluates the context of the email bodies. 
 5. **The Execution:** Nexus receives the JSON payload, applies the appropriate category/entity/purpose labels, colorizes them, applies action flags, drops the `ai-ready` label, and logs the telemetry.
@@ -41,6 +41,8 @@ Nexus is built to be customized without touching the core engine. All behavioral
 | `AUTO_TAGGING` | Controls the native Gmail filter generation and defines which native tabs (e.g., Promotions) to skip. |
 | `FLAG_RULES` | Strict, Moderate, or Lenient rules dictating when the AI applies "Important" or "Starred" flags. |
 | `PALETTE` | The hex color codes used by the Advanced Gmail API to colorize labels. |
+| `QUOTA_MANAGEMENT` | Limits and thresholds to protect Google API quotas when processing massive email backlogs. |
+| `SELF-TUNING ENGINE`| Configuration variables for the V2.0.0 cache and correction system (e.g., `ENABLE_SELF_TUNING`). |
 
 ---
 
@@ -83,7 +85,8 @@ Before installing Nexus, you need to prepare your Google environment:
    * `Setup.gs`
    * `Main.gs`
 2. **Secure Your Secrets:** Open `Secrets.gs`. Paste your Gemini API Key and your preferred notification email address into the variables. Click **Save** (the floppy disk icon).
-3. **Run the 1-Click Installer:** * Look at the toolbar at the top of the editor. Select **`installNexus`** from the dropdown menu.
+3. **Run the 1-Click Installer:** 
+   * Look at the toolbar at the top of the editor. Select **`installNexus`** from the dropdown menu.
    * Click **Run**. 
    * *Note: Google will ask for permission to access your Drive and Gmail. Click **Review permissions**, choose your account, click **Advanced**, and select **Go to project (unsafe)** to grant access.*
 4. Check the Execution Log at the bottom of the screen. You will see an "INSTALLATION COMPLETE!" message along with a direct link to your newly generated AI System Prompt in Google Drive. 

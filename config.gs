@@ -49,7 +49,6 @@ const CONFIG = {
   
   // Parent Folders for Sorting
   // These are the top-level directories Nexus will create in your Gmail sidebar.
-  // Parent Folders for Sorting
   PARENT_LABEL_PURPOSE: 'Purpose', 
   
   // Define your main parent folders and explain to the AI exactly what belongs in them.
@@ -62,7 +61,7 @@ const CONFIG = {
     "Health":"Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health."
   },
   
-  // how strict the AI should be when deciding to flag an email.
+  // How strict the AI should be when deciding to flag an email.
   // Uncomment the rule you want to actively use.
   FLAG_RULES: {
     // IMPORTANT FLAG (Yellow Chevron in Gmail)
@@ -165,4 +164,3 @@ const ENABLE_SELF_TUNING = true;
 const CORRECTION_LABEL = "ai-correct"; 
 const CACHE_RETENTION_DAYS = 21; 
 const CACHE_FOLDER_NAME = "Cache";
-
