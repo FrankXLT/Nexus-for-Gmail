@@ -84,7 +84,7 @@ function tuneSystemPrompt() {
   const body = doc.getBody();
   const text = body.getText();
 
-  // Extract the Safe Zone
+  // Extract the Safe Zone to commit the changes 
   const startIndex = text.indexOf("[START_AUTOTUNED_RULES]");
   const endIndex = text.indexOf("[END_AUTOTUNED_RULES]");
   

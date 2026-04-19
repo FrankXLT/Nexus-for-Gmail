@@ -235,11 +235,13 @@ function mainPipeline() {
 
         // --- V2.0.0 CACHE INJECTION ---
         if (typeof ENABLE_SELF_TUNING !== 'undefined' && ENABLE_SELF_TUNING) {
+          let aiLabels = appliedTags.filter(t => t !== CONFIG.LABEL_COMPLETE && !t.startsWith("Category:") && t !== "Important" && t !== "Starred");
+          
           saveStateToCache(latestMessage.getId(), {
-            labels: result.Purposes || [],
-            entity: result.Entity || "Unknown",
-            isImportant: result.isImportant || false,
-            isStarred: result.isStarred || false,
+            labels: aiLabels,
+            entity: result.entityType || "Unknown",
+            isImportant: emailAI.isImportant || false,
+            isStarred: emailAI.isStarred || false,
             timestamp: new Date().getTime()
           });
         }
