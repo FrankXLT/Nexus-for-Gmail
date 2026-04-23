@@ -185,11 +185,12 @@ function mainPipeline() {
 
       let correspondentPath = `${parentPath}/${result.name}`;
       let correspondentLabel = null;
+      let isNewCorrespondent = !GmailApp.getUserLabelByName(correspondentPath);
       
       // Blacklist Check: Correspondent
       if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name))) {
         correspondentLabel = getOrCreateLabel(correspondentPath, result.name);
-        if (correspondentLabel) {
+        if (correspondentLabel && isNewCorrespondent) {
           let bgColor = "#ffffff";
           let textColor = "#000000";
           setLabelColor(correspondentPath, bgColor, textColor);
@@ -216,12 +217,17 @@ function mainPipeline() {
           let pLower = emailAI.purpose.trim().toLowerCase();
           if (pLower === 'update' || pLower === 'updates') {
             emailAI.category = "Updates";
+          } else if (pLower === 'offer' || pLower === 'offers') {
+            emailAI.category = "Promotions";
           } else {
             let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
+            let isNewPurpose = !GmailApp.getUserLabelByName(purposePath);
             let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
             
             if (purposeLabel) {
-              setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
+              if (isNewPurpose) {
+                setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
+              }
               thread.addLabel(purposeLabel);
               appliedTags.push(purposePath);
             }
@@ -262,6 +268,7 @@ function mainPipeline() {
 
         thread.addLabel(completeLabel);
         thread.removeLabel(readyLabel);
+        thread.removeLabel(failedLabel); // Strip ai-failed if it exists
 
         batchLog.emails.push({
           subject: latestMessage.getSubject(),
@@ -278,14 +285,32 @@ function mainPipeline() {
         const failMsg = thread.getMessages()[thread.getMessages().length - 1];
         
         thread.addLabel(failedLabel);
+
+        if (apiResult.is5xx) {
+            let tags = [CONFIG.LABEL_FAILED, "Retained ai-ready (5xx)"];
+            if (apiResult.error) tags.push("error:" + apiResult.error);
+            batchLog.emails.push({
+              subject: failMsg.getSubject(),
+              snippet: failMsg.getPlainBody().substring(0, 60).replace(/\s+/g, ' ') + "...",
+              link: thread.getPermalink(),
+              before: [CONFIG.LABEL_READY],
+              after: tags
+            });
+            continue; // Keep ai-ready, skip quarantine
+        }
+
         thread.removeLabel(readyLabel);
         
+        let tags = [CONFIG.LABEL_FAILED];
+        if (apiResult.error) tags.push("error:" + apiResult.error);
+        else if (!apiResult.success && !result) tags.push("error:[Parse Error]: Invalid JSON returned by AI");
+
         batchLog.emails.push({
           subject: failMsg.getSubject(),
           snippet: failMsg.getPlainBody().substring(0, 60).replace(/\s+/g, ' ') + "...",
           link: thread.getPermalink(),
           before: [CONFIG.LABEL_READY],
-          after: [CONFIG.LABEL_FAILED]
+          after: tags
         });
       }
     }
@@ -358,13 +383,23 @@ function writeDebugLog(logText, debugFolderId) {
  * Importance: Provides the user with a readable summary of actions taken by the script.
  */
 function writeDailyLog(jobLog, logsFolderId) {
-  const folder = DriveApp.getFolderById(logsFolderId);
-  const dateStr = Utilities.formatDate(jobLog.startTime, Session.getScriptTimeZone(), "yyyy-MM-dd_HH");
+  const rootLogsFolder = DriveApp.getFolderById(logsFolderId);
+  const tz = Session.getScriptTimeZone();
+  const yearMonth = Utilities.formatDate(jobLog.startTime, tz, "yyyy_MM");
+  const day = Utilities.formatDate(jobLog.startTime, tz, "dd");
+
+  let ymFolderIterator = rootLogsFolder.getFoldersByName(yearMonth);
+  let ymFolder = ymFolderIterator.hasNext() ? ymFolderIterator.next() : rootLogsFolder.createFolder(yearMonth);
+
+  let dayFolderIterator = ymFolder.getFoldersByName(day);
+  let dayFolder = dayFolderIterator.hasNext() ? dayFolderIterator.next() : ymFolder.createFolder(day);
+
+  const dateStr = Utilities.formatDate(jobLog.startTime, tz, "yyyy-MM-dd_HH");
   const fileName = `Log_${dateStr}.html`;
-  const files = folder.getFilesByName(fileName);
-  
-  const escapeHtml = (str) => {
-    return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const files = dayFolder.getFilesByName(fileName);
+  const folder = dayFolder;
+
+  const escapeHtml = (str) => {    return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   };
 
   // Advanced CSS Block (Light/Dark Mode)
@@ -654,12 +689,38 @@ function what() {
 }
 
 /**
+ * Purpose: Calculates WCAG relative luminance contrast ratio between two hex colors.
+ */
+function getContrastRatio(hex1, hex2) {
+  function getLuminance(hex) {
+    let rgb = parseInt(hex.substring(1), 16);
+    let r = (rgb >> 16) & 0xff;
+    let g = (rgb >>  8) & 0xff;
+    let b = (rgb >>  0) & 0xff;
+    let a = [r, g, b].map(function (v) {
+      v /= 255;
+      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+  }
+  let lum1 = getLuminance(hex1);
+  let lum2 = getLuminance(hex2);
+  let brightest = Math.max(lum1, lum2);
+  let darkest = Math.min(lum1, lum2);
+  return (brightest + 0.05) / (darkest + 0.05);
+}
+
+/**
  * Purpose: Triggered daily to check and set branding colors for newly created entity labels.
  * Input: None
  * Output: Modifies Gmail label colors via the Advanced Gmail API.
  * Importance: Ensures the visual aesthetic of newly created labels remains consistent with the system's branding without manual intervention.
  */
 function updateLabelBrandingColors() {
+  const props = PropertiesService.getUserProperties();
+  let quotaData = getAndUpdateQuota(props);
+  if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) return;
+
   let allLabelsResponse;
   try {
     allLabelsResponse = Gmail.Users.Labels.list('me');
@@ -733,11 +794,23 @@ Format:
              const c = colors[label.name];
              if (CONFIG.BACKGROUND_COLORS.includes(c.backgroundColor) && CONFIG.TEXT_COLORS.includes(c.textColor)) {
                  try {
-                     Gmail.Users.Labels.patch({ color: { backgroundColor: c.backgroundColor, textColor: c.textColor } }, 'me', label.id);
+                     if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) break;
+                     let bgColor = c.backgroundColor;
+                     let txtColor = c.textColor;
+                     
+                     if (getContrastRatio(bgColor, txtColor) < 3.0) {
+                         let whiteContrast = getContrastRatio(bgColor, "#ffffff");
+                         let darkContrast = getContrastRatio(bgColor, "#434343");
+                         txtColor = whiteContrast > darkContrast ? "#ffffff" : "#434343";
+                     }
+                     
+                     Gmail.Users.Labels.patch({ color: { backgroundColor: bgColor, textColor: txtColor } }, 'me', label.id);
+                     quotaData.opsUsed++;
                  } catch (e) {}
              }
          }
       }
+      props.setProperty('QUOTA_DATA', JSON.stringify(quotaData));
     }
   } catch (e) {}
 }

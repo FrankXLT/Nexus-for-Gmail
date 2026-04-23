@@ -24,7 +24,7 @@
 
 const CONFIG = {
   // Nexus Version Tracker & Update Path
-  VERSION: '2.0.3', 
+  VERSION: '2.2.3', 
   GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
   
   // We default to flash-lite because it is the most cost-effective model for new users,
@@ -60,8 +60,12 @@ const CONFIG = {
     "People": "Individual humans and personal contacts.",
     "Health": "Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health.",
     "Dining": "Restaurants, fast food, food delivery services, reservations, and dining receipts.",
-    "Social": "Social media platforms, dating apps, community forums, and networking sites.",
-    "TV-Streaming": "Video streaming services, television networks, movie platforms, and subscriptions like Netflix or Hulu."
+    "Social Sites": "Social media platforms, dating apps, community forums, and networking sites.",
+    "TV-Streaming": "Video streaming services, television networks, movie platforms, and subscriptions like Netflix or Hulu.",
+    "News": "Newsletters, journalism, daily digests, and media publications.",
+    "Utilities": "Internet, power, water, telecom providers, and essential home services.",
+    "Productivity": "Task management, note-taking apps, cloud storage, and workspace collaboration tools.",
+    "Gaming": "Video game stores, gaming platforms, server hosting, and game developer communications."
   },
   
   // How strict the AI should be when deciding to flag an email.
@@ -92,7 +96,7 @@ const CONFIG = {
   // BLACKLIST CONTROLS
   // Prevent the AI from categorizing or creating specific labels.
   BLACKLIST: {
-    TERMS: ['Alerts', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice'],
+    TERMS: ['Alerts', 'Alert', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice', 'Updates', 'Update', 'Offers'],
     
     // If true: The engine completely ignores the term if the AI suggests it.
     DO_NOT_USE: true, 

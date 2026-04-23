@@ -148,6 +148,9 @@ function setupAutoRun() {
   ScriptApp.newTrigger('updateLabelBrandingColors').timeBased().everyDays(1).atHour(3).create();
   // -----------------------------------
 
+  // --- V2.2.3 BACKGROUND MIGRATION TRIGGER ---
+  ScriptApp.newTrigger('migrateLabelsToEntities').timeBased().everyDays(1).atHour(4).create();
+
   Logger.log(`Automation trigger successfully activated. Nexus will run every ${CONFIG.JOB_INTERVAL_MINUTES} minutes.`);
 }
 
@@ -167,9 +170,15 @@ Task 1: Global Domain Info
 Task 2: Email Specifics (Evaluate each EMAIL INDEX)
 For each email, provide:
 - index: The integer ID matching the EMAIL INDEX.
-- purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). MUST strictly check existing list: [{{PURPOSES}}] and reuse existing matching purposes even if slightly different (e.g., use 'Orders' instead of creating 'Order Updates', use 'Events' instead of 'Event Notices', match singular/plural). If you are unsure or it does not fit a clear category, return null.
+- purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). MUST strictly check existing list: [{{PURPOSES}}] and reuse existing matching purposes. 
+CRITICAL TAXONOMY RULES:
+  - NEVER use plurals for these categories. Force consolidation: 'Payments' -> 'Payment', 'Statements' -> 'Statement', 'Credit Reports' -> 'Credit Report'.
+  - Route all Calendar invites/accepts strictly to 'Calendar'.
+  - 'Event Notice' must be mapped directly to 'Events'.
+  - NEVER use 'Support'. Map to 'Issues-Support'.
+  - If you are unsure or it does not fit a clear category, return null.
 - category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "People" and this is a conversational email, strongly favor "Primary" over "Updates".
-- isImportant: Boolean ({{IMPORTANT_RULE}})
+- isImportant: Boolean ({{IMPORTANT_RULE}}). ALWAYS set to true for "Alerts", do NOT use "Alert" or "Alerts" as a purpose.
 - isStarred: Boolean ({{STARRED_RULE}})
 
 Return ONLY a raw JSON object. Do not include markdown blocks.
@@ -291,26 +300,78 @@ function setupAutoTagFilter() {
 }
 
 /**
- * Purpose: One-time organization function to migrate and map existing Gmail labels into the new entity structure using AI.
+ * Purpose: Organization function to migrate and map existing Gmail labels into the new entity structure using AI.
  * Input: None
  * Output: Moves, renames, and groups existing labels to fall under defined entities or general purposes.
- * Importance: Helps users organize an existing messy label structure to fit the Nexus framework.
+ * Importance: Helps users organize an existing messy label structure to fit the Nexus framework. Runs in the background to handle large backlogs.
  */
 function migrateLabelsToEntities() {
+  const startTime = Date.now();
+  const maxExecutionTime = 5.5 * 60 * 1000; // 5.5 minutes
+
+  const props = PropertiesService.getUserProperties();
+  const logsFolderId = props.getProperty('LOGS_FOLDER_ID');
+  let logText = `\n--- Migration Run: ${new Date().toISOString()} ---\n`;
+  let threadsMigrated = 0;
+  let earlyHalt = false;
+  let haltReason = "";
+
+  let quotaString = props.getProperty('QUOTA_DATA');
+  let quotaData = quotaString ? JSON.parse(quotaString) : { windowStart: Date.now(), opsUsed: 0 };
+  if (Date.now() - quotaData.windowStart > 86400000) {
+      quotaData = { windowStart: Date.now(), opsUsed: 0 };
+  }
+
+  if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) {
+      logText += "Halted: Daily API quota already exhausted before start.\n";
+      appendMigrationLog(logsFolderId, logText);
+      return;
+  }
+
   const allLabels = GmailApp.getUserLabels();
   const entityKeys = Object.keys(CONFIG.ENTITIES);
   
-  // Exclude standard entities, Purpose parent (but allow its children for deduplication), and Category labels
+  let migratedStr = props.getProperty('MIGRATED_LABELS');
+  let migratedLabels = migratedStr ? JSON.parse(migratedStr) : [];
+  
+  let mappingCacheStr = props.getProperty('MIGRATION_MAPPINGS');
+  let mappingCache = mappingCacheStr ? JSON.parse(mappingCacheStr) : {};
+
+  // Exclude standard entities, Purpose parent, Category labels, and already fully migrated labels
   const labelsToMap = allLabels
     .map(l => l.getName())
-    .filter(name => !entityKeys.includes(name) && name !== CONFIG.PARENT_LABEL_PURPOSE && !name.startsWith('Category:'));
+    .filter(name => !entityKeys.includes(name) && name !== CONFIG.PARENT_LABEL_PURPOSE && !name.startsWith('Category:') && !migratedLabels.includes(name));
   
   if (labelsToMap.length === 0) {
-    Logger.log("No labels to migrate.");
+    logText += "No new labels to migrate.\n";
+    appendMigrationLog(logsFolderId, logText);
+    // Cleanup properties if we are fully done
+    props.deleteProperty('MIGRATED_LABELS');
+    props.deleteProperty('MIGRATION_MAPPINGS');
     return;
   }
   
-  const prompt = `You are an expert organizer. Map the following user email labels to the best matching entity category OR the '${CONFIG.PARENT_LABEL_PURPOSE}' category.
+  const apiKey = SECRETS.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
+    logText += "Error: GEMINI_API_KEY is not set in secrets.gs.\n";
+    appendMigrationLog(logsFolderId, logText);
+    return;
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
+
+  // Find labels that don't have a mapping yet
+  let labelsWithoutMapping = labelsToMap.filter(name => !mappingCache.hasOwnProperty(name));
+
+  // Batch labels into groups of 30 for AI categorization
+  const BATCH_SIZE = 30;
+  for (let b = 0; b < labelsWithoutMapping.length; b += BATCH_SIZE) {
+    if (Date.now() - startTime > maxExecutionTime) { earlyHalt = true; haltReason = "Time Limit Reached"; break; }
+    if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) { earlyHalt = true; haltReason = "Quota Exhausted"; break; }
+
+    const currentBatch = labelsWithoutMapping.slice(b, b + BATCH_SIZE);
+    
+    const prompt = `You are an expert organizer. Map the following user email labels to the best matching entity category OR the '${CONFIG.PARENT_LABEL_PURPOSE}' category.
 If a label clearly represents a sender (like a business, person, bank) and fits into one of the entities, map it to that entity.
 If a label is a topic, category, or reason (like 'Receipts', 'Travel', 'Orders', 'Events') and is a good fit for a general purpose, map it to '${CONFIG.PARENT_LABEL_PURPOSE}'.
 If multiple labels represent the same entity or purpose, group them to the primary one by returning the same mapped name. Treat slight variations (e.g., missing "The", apostrophes, suffixes like "Inc", singular/plural differences like "Update" vs "Updates", or synonyms like "Event Notices" vs "Events", "Order Updates" vs "Orders", "Credit Reports" vs "Credit") as the same entity/purpose.
@@ -323,7 +384,7 @@ Special:
 ${CONFIG.PARENT_LABEL_PURPOSE}
 
 Labels to evaluate:
-${labelsToMap.join(', ')}
+${currentBatch.join(', ')}
 
 Return ONLY a raw JSON object mapping the original label name to an object with 'entity' and 'newName' (if merging or extracting base name, else same as original label name), or null if it shouldn't be moved.
 Format:
@@ -336,69 +397,168 @@ Format:
   "Update": null
 }`;
 
-  const apiKey = SECRETS.GEMINI_API_KEY;
-  if (!apiKey || apiKey === 'YOUR_GEMINI_API_KEY') {
-    Logger.log("Error: GEMINI_API_KEY is not set in secrets.gs.");
-    return;
-  }
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const payload = {
-    "contents": [{ "parts": [{ "text": prompt }] }],
-    "generationConfig": { "temperature": 0.1 }
-  };
-  
-  const options = {
-    "method": "post",
-    "contentType": "application/json",
-    "payload": JSON.stringify(payload),
-    "muteHttpExceptions": true
-  };
-  
-  const response = UrlFetchApp.fetch(url, options);
-  const data = JSON.parse(response.getContentText());
-  
-  if (data.candidates && data.candidates.length > 0) {
-    let text = data.candidates[0].content.parts[0].text;
-    text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    const payload = {
+      "contents": [{ "parts": [{ "text": prompt }] }],
+      "generationConfig": { "temperature": 0.1 }
+    };
+    
+    const options = {
+      "method": "post",
+      "contentType": "application/json",
+      "payload": JSON.stringify(payload),
+      "muteHttpExceptions": true
+    };
+    
     try {
-      const mappings = JSON.parse(text);
-      for (const oldName in mappings) {
-        const mapping = mappings[oldName];
-        if (mapping && mapping.entity && (entityKeys.includes(mapping.entity) || mapping.entity === CONFIG.PARENT_LABEL_PURPOSE)) {
-          let baseName = mapping.newName || oldName;
-          if (baseName.includes('/')) {
-            baseName = baseName.split('/').pop();
-          }
-          const newPath = `${mapping.entity}/${baseName}`;
-          
-          // Skip if the new path is the exact same as the old name
-          if (newPath === oldName) continue;
-
-          Logger.log(`Migrating: ${oldName} -> ${newPath}`);
-          
-          const oldLabel = GmailApp.getUserLabelByName(oldName);
-          let newLabel = GmailApp.getUserLabelByName(newPath);
-          if (!newLabel) {
-             newLabel = GmailApp.createLabel(newPath);
-             // Default color
-             try {
-                Gmail.Users.Labels.patch({ color: { backgroundColor: '#ffffff', textColor: '#000000' } }, 'me', Gmail.Users.Labels.list('me').labels.find(l => l.name === newPath).id);
-             } catch (e) {}
-          }
-          
-          if (oldLabel) {
-            const threads = oldLabel.getThreads();
-            for (let i = 0; i < threads.length; i += 100) {
-               const batch = threads.slice(i, i + 100);
-               newLabel.addToThreads(batch);
-               oldLabel.removeFromThreads(batch);
-            }
-          }
+      const response = UrlFetchApp.fetch(url, options);
+      quotaData.opsUsed++; // API Call counts as an op
+      const data = JSON.parse(response.getContentText());
+      
+      if (data.candidates && data.candidates.length > 0) {
+        let text = data.candidates[0].content.parts[0].text;
+        text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const mappings = JSON.parse(text);
+        for (const oldName of currentBatch) {
+           mappingCache[oldName] = mappings[oldName] !== undefined ? mappings[oldName] : null;
         }
       }
     } catch (e) {
-      Logger.log("Failed to parse AI response: " + e.message);
+      logText += `Failed fetching AI mappings: ${e.message}\n`;
+      earlyHalt = true; haltReason = "AI API Error";
+      break;
     }
   }
+
+  // Process mapped labels using the cache
+  for (const oldName of labelsToMap) {
+    if (migratedLabels.includes(oldName)) continue;
+    if (Date.now() - startTime > maxExecutionTime) { earlyHalt = true; haltReason = "Time Limit Reached"; break; }
+    if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) { earlyHalt = true; haltReason = "Quota Exhausted"; break; }
+
+    if (!mappingCache.hasOwnProperty(oldName)) continue; // Not mapped by AI yet
+
+    const mapping = mappingCache[oldName];
+    if (mapping && mapping.entity && (entityKeys.includes(mapping.entity) || mapping.entity === CONFIG.PARENT_LABEL_PURPOSE)) {
+      let baseName = mapping.newName || oldName;
+      if (baseName.includes('/')) {
+        baseName = baseName.split('/').pop();
+      }
+      const newPath = `${mapping.entity}/${baseName}`;
+      
+      // Skip if the new path is the exact same as the old name
+      if (newPath === oldName) {
+        migratedLabels.push(oldName);
+        continue;
+      }
+
+      const oldLabel = GmailApp.getUserLabelByName(oldName);
+      let newLabel = GmailApp.getUserLabelByName(newPath);
+      if (!newLabel) {
+         newLabel = GmailApp.createLabel(newPath);
+         quotaData.opsUsed++;
+         // Default color
+         try {
+            Gmail.Users.Labels.patch({ color: { backgroundColor: '#ffffff', textColor: '#000000' } }, 'me', Gmail.Users.Labels.list('me').labels.find(l => l.name === newPath).id);
+            quotaData.opsUsed++;
+         } catch (e) {}
+      }
+      
+      if (oldLabel) {
+        // Fetch in limited chunks to prevent memory overload and track progress
+        const threads = oldLabel.getThreads(0, 100);
+        if (threads.length === 0) {
+            migratedLabels.push(oldName);
+        } else {
+            for (let i = 0; i < threads.length; i += 100) {
+               if (Date.now() - startTime > maxExecutionTime) { earlyHalt = true; haltReason = "Time Limit Reached"; break; }
+               if (quotaData.opsUsed >= CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY) { earlyHalt = true; haltReason = "Quota Exhausted"; break; }
+               
+               const batchThreads = threads.slice(i, i + 100);
+               newLabel.addToThreads(batchThreads);
+               oldLabel.removeFromThreads(batchThreads);
+               quotaData.opsUsed += 2; 
+               threadsMigrated += batchThreads.length;
+            }
+            // Check if all threads for this label are fully processed
+            if (oldLabel.getThreads(0, 1).length === 0) {
+                migratedLabels.push(oldName);
+            }
+        }
+      } else {
+        migratedLabels.push(oldName);
+      }
+    } else {
+      // Mapped to null, do not process
+      migratedLabels.push(oldName);
+    }
+  }
+
+  logText += `Threads migrated this batch: ${threadsMigrated}\n`;
+  if (earlyHalt) logText += `Halted early: ${haltReason}\n`;
+  else if (threadsMigrated > 0 || labelsToMap.length > 0) logText += `Batch completed successfully.\n`;
+
+  props.setProperty('QUOTA_DATA', JSON.stringify(quotaData));
+  
+  if (labelsToMap.filter(n => !migratedLabels.includes(n)).length === 0) {
+    props.deleteProperty('MIGRATED_LABELS');
+    props.deleteProperty('MIGRATION_MAPPINGS');
+  } else {
+    props.setProperty('MIGRATED_LABELS', JSON.stringify(migratedLabels));
+    props.setProperty('MIGRATION_MAPPINGS', JSON.stringify(mappingCache));
+  }
+  
+  appendMigrationLog(logsFolderId, logText);
+}
+
+/**
+ * Purpose: Appends text to the background migration log file.
+ * Input: logsFolderId (String), logText (String)
+ * Output: Creates or updates a Migration_Log.txt file in Google Drive.
+ * Importance: Provides a record of background processing for the user.
+ */
+function appendMigrationLog(logsFolderId, logText) {
+  if (!logsFolderId) return;
+  try {
+    const folder = DriveApp.getFolderById(logsFolderId);
+    const files = folder.getFilesByName("Migration_Log.txt");
+    if (files.hasNext()) {
+      let file = files.next();
+      file.setContent(file.getBlob().getDataAsString() + logText);
+    } else {
+      folder.createFile("Migration_Log.txt", logText, MimeType.PLAIN_TEXT);
+    }
+  } catch(e) {
+    Logger.log("Failed to write migration log: " + e.message);
+  }
+}
+
+/**
+ * Purpose: Resets all user label colors to the default black text on white background.
+ * Input: None
+ * Output: Modifies Gmail label colors via the Advanced Gmail API.
+ * Importance: Provides a clean slate for users wanting to reset their branding colors.
+ */
+function resetAllLabelColors() {
+  let allLabelsResponse;
+  try {
+    allLabelsResponse = Gmail.Users.Labels.list('me');
+  } catch (e) {
+    Logger.log("Advanced Gmail service might be unavailable: " + e.message);
+    return;
+  }
+  const allLabels = allLabelsResponse.labels || [];
+  
+  let resetCount = 0;
+  for (const label of allLabels) {
+    if (label.type === 'user') {
+      try {
+        Gmail.Users.Labels.patch({ color: { backgroundColor: '#ffffff', textColor: '#000000' } }, 'me', label.id);
+        resetCount++;
+      } catch (e) {
+        // Skip labels that can't be patched
+      }
+    }
+  }
+  Logger.log(`Successfully reset colors for ${resetCount} labels to black on white text.`);
 }

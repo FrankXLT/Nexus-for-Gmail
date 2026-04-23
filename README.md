@@ -117,3 +117,21 @@ Nexus will automatically email you when a new release is published. To update:
 **Code License:** This project is licensed under the [GNU General Public License v3.0](LICENSE). You are completely free to use, copy, modify, and distribute this software. However, if you distribute a modified version, you **must** make your source code openly available under the exact same GPLv3 license. 
 
 **Brand Protection:** While the code is open-source, the name **"Nexus for Gmail"** is reserved. If you fork this repository to create a heavily modified, divergent, or commercial version, I ask that you choose a new name for your variant to avoid confusing users who are looking for the official, stable release.
+
+---
+
+## 📅 Changelog
+
+### v2.2.2
+- **5xx Error Retry Handling:** In the event of a 5xx server error, the pipeline now explicitly retains both the `ai-ready` and `ai-failed` labels. This allows the email to be automatically retried in the next background execution cycle without requiring user intervention.
+
+### v2.2.1
+- **Nested Log Folders:** Upgraded HTML execution log structure. Logs are now organized cleanly into nested folders by `YYYY_MM/DD/` (e.g., `Logs/2026_04/22/`) to prevent long-term clutter in the root Log folder.
+- **Label Color Reset Tool:** Added a standalone `resetAllLabelColors()` function in `setup.gs` that users can run manually to wipe all custom branding colors, resetting all entity labels to black text on a white background.
+
+### v2.2.0
+- **Execution Limit Rescue:** Rewrote the `migrateLabelsToEntities` batch processing to constantly monitor its own execution time and safely exit before hitting Google's 6-minute hard timeout limit.
+- **Quota Protection:** Integrated strict daily Google API operations quota checking (`max_ops_per_day`) directly into label branding and migration tools to prevent unexpected lockouts.
+- **Automated Brand Contrast Algorithm:** The daily branding task now utilizes WCAG relative luminance math to dynamically evaluate the AI's hex color suggestions. If a background/text color pairing lacks sufficient contrast (ratio < 3.0), the engine automatically falls back to either pure white or dark charcoal for readability.
+- **Enhanced Error Logging:** Overhauled HTML telemetry output to dynamically display detailed string errors beneath failed threads when the AI returns 5xx codes or invalid JSON arrays.
+- **Strict Taxonomy Enforcement:** Added new systemic controls to the `BLACKLIST` and standard `ENTITIES` configuration to ban terms like "Offers", "Alerts", and "Updates", dynamically re-routing them to native system tabs ("Promotions", "Important flags", and "Updates"). Instructed the LLM to force plural consolidation (e.g. Payments -> Payment).
