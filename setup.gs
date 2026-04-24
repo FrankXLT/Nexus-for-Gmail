@@ -151,6 +151,9 @@ function setupAutoRun() {
   // --- V2.2.3 BACKGROUND MIGRATION TRIGGER ---
   ScriptApp.newTrigger('migrateLabelsToEntities').timeBased().everyDays(1).atHour(4).create();
 
+  // --- V2.3.0 DYNAMIC BRANDING TRIGGER ---
+  ScriptApp.newTrigger('sweepUnbrandedLabels').timeBased().everyDays(1).atHour(5).create();
+
   Logger.log(`Automation trigger successfully activated. Nexus will run every ${CONFIG.JOB_INTERVAL_MINUTES} minutes.`);
 }
 

@@ -122,6 +122,11 @@ Nexus will automatically email you when a new release is published. To update:
 
 ## 📅 Changelog
 
+### v2.3.0
+- **Dynamic Label Branding with Brandfetch:** Replaced generative AI color guessing with deterministic Brandfetch API integration.
+- **Modular Architecture:** Extracted all external branding API calls, color math (Euclidean distance for RGB snapping and WCAG relative luminance), and label patching into a dedicated, toggleable `branding.gs` module.
+- **Daily Branding Sweep:** Implemented `sweepUnbrandedLabels` as a background task running daily at 5 AM to safely colorize unbranded entity sublabels without hitting Google's 6-minute execution limit or daily quota.
+
 ### v2.2.2
 - **5xx Error Retry Handling:** In the event of a 5xx server error, the pipeline now explicitly retains both the `ai-ready` and `ai-failed` labels. This allows the email to be automatically retried in the next background execution cycle without requiring user intervention.
 

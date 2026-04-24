@@ -663,7 +663,15 @@ function getOrCreateLabel(labelPath, baseTerm) {
   if (baseTerm && CONFIG.BLACKLIST.DO_NOT_CREATE && isBlacklisted(baseTerm)) {
     return null; 
   }
-  return GmailApp.createLabel(labelPath);
+  
+  const newLabel = GmailApp.createLabel(labelPath);
+  
+  // Trigger dynamic label coloring if enabled and the module is present
+  if (typeof applyBrandColorToLabel === 'function') {
+    applyBrandColorToLabel(newLabel, baseTerm || labelPath.split('/').pop());
+  }
+  
+  return newLabel;
 }
 
 /**

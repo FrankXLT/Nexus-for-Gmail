@@ -31,6 +31,10 @@ const CONFIG = {
   // capable of processing thousands of emails for pennies.
   GEMINI_MODEL: 'gemini-2.5-flash-lite', 
   
+  // Dynamic Label Coloring
+  // Bypasses all external Betterbrand API calls if false.
+  ENABLE_BRANDING: true,
+  
   // Execution Settings
   // Determines how frequently Google's servers wake up to run the script.
   JOB_INTERVAL_MINUTES: 5, 
