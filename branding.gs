@@ -1,15 +1,98 @@
 /**
  * NEXUS FOR GMAIL - BRANDING
- * Handles dynamic label coloring using the Brandfetch API.
+ * Handles dynamic label coloring using multiple branding APIs.
  */
 
 /**
- * Fetches the primary brand color for a given domain from the Brandfetch API.
- * Returns null if the domain is not found or API times out.
+ * Checks if a provider is currently locked out due to rate limits.
+ * @param {string} providerName - 'LOGODEV' or 'BRANDFETCH'
+ * @returns {boolean} - true if locked out
  */
-function fetchBrandColor(domain) {
+function isProviderLockedOut(providerName) {
+  const props = PropertiesService.getUserProperties();
+  const lockoutTimeStr = props.getProperty('LOCKOUT_' + providerName);
+  if (lockoutTimeStr) {
+    const lockoutTime = parseInt(lockoutTimeStr, 10);
+    const now = Date.now();
+    // 24 hours in milliseconds
+    if (now - lockoutTime < 24 * 60 * 60 * 1000) {
+      return true;
+    } else {
+      // Lockout expired, clean it up
+      props.deleteProperty('LOCKOUT_' + providerName);
+    }
+  }
+  return false;
+}
+
+/**
+ * Sets a lockout timestamp for a provider.
+ * @param {string} providerName 
+ */
+function setProviderLockout(providerName) {
+  const props = PropertiesService.getUserProperties();
+  props.setProperty('LOCKOUT_' + providerName, Date.now().toString());
+  Logger.log(`[CIRCUIT BREAKER] Lockout activated for ${providerName} for 24 hours.`);
+}
+
+/**
+ * Fetches the brand colors from Logo.dev
+ * @param {string} domain
+ * @returns {object|null} { primary: hex, secondary: hex }
+ */
+function fetchLogoDev(domain) {
   try {
-    if (!CONFIG.ENABLE_BRANDING || !SECRETS.BRANDFETCH_API_KEY || SECRETS.BRANDFETCH_API_KEY === 'YOUR_BRANDFETCH_API_KEY') return null;
+    if (!SECRETS.LOGODEV_SECRET_KEY || SECRETS.LOGODEV_SECRET_KEY === 'YOUR_LOGODEV_SECRET_KEY') return null;
+
+    // Using a typical logo.dev URL. Adjust if their endpoint format is different.
+    const url = `https://api.logo.dev/api/v2/search?q=${encodeURIComponent(domain)}`;
+    const options = {
+      method: 'get',
+      headers: {
+        'Authorization': `Bearer ${SECRETS.LOGODEV_SECRET_KEY}`
+      },
+      muteHttpExceptions: true,
+      timeout: 5000
+    };
+    
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    
+    if (code === 429) {
+      setProviderLockout('LOGODEV');
+      return null;
+    }
+    
+    if (code === 200) {
+      const data = JSON.parse(response.getContentText());
+      let primary = "#ffffff";
+      let secondary = "#000000";
+      
+      // Robust extraction for Logo.dev payload
+      if (data && data.colors) {
+         primary = data.colors.primary || primary;
+         secondary = data.colors.secondary || secondary;
+      } else if (Array.isArray(data) && data.length > 0 && data[0].colors) {
+         primary = data[0].colors.primary || primary;
+         secondary = data[0].colors.secondary || secondary;
+      }
+      
+      return { primary: primary, secondary: secondary };
+    }
+  } catch (e) {
+    Logger.log("Logo.dev API Error: " + e.message);
+  }
+  return null;
+}
+
+/**
+ * Fetches the brand colors from Brandfetch
+ * @param {string} domain
+ * @returns {object|null} { primary: hex, secondary: hex }
+ */
+function fetchBrandfetch(domain) {
+  try {
+    if (!SECRETS.BRANDFETCH_API_KEY || SECRETS.BRANDFETCH_API_KEY === 'YOUR_BRANDFETCH_API_KEY') return null;
 
     const url = `https://api.brandfetch.io/v2/brands/domain/${encodeURIComponent(domain)}`;
     const options = {
@@ -18,16 +101,23 @@ function fetchBrandColor(domain) {
         'Authorization': `Bearer ${SECRETS.BRANDFETCH_API_KEY}`
       },
       muteHttpExceptions: true,
-      timeout: 5000 // Ensure we don't hang execution
+      timeout: 5000
     };
     
     const response = UrlFetchApp.fetch(url, options);
-    if (response.getResponseCode() === 200) {
+    const code = response.getResponseCode();
+    
+    if (code === 429) {
+      setProviderLockout('BRANDFETCH');
+      return null;
+    }
+    
+    if (code === 200) {
       const data = JSON.parse(response.getContentText());
       if (data && data.colors && data.colors.length > 0) {
-        // Find the color with type "primary", or fallback to the first one
-        const primaryColorObj = data.colors.find(c => c.type === 'primary') || data.colors[0];
-        return primaryColorObj ? primaryColorObj.hex : null;
+        const primary = data.colors[0].hex;
+        const secondary = data.colors.length > 1 ? data.colors[1].hex : "#000000";
+        return { primary: primary, secondary: secondary };
       }
     }
   } catch (e) {
@@ -37,9 +127,35 @@ function fetchBrandColor(domain) {
 }
 
 /**
+ * Orchestrates fetching colors based on the provider priority array.
+ */
+function fetchBrandColorsWithFailover(domain) {
+  const providers = CONFIG.BRANDING_PROVIDERS || ['LOGODEV', 'BRANDFETCH'];
+  
+  for (const provider of providers) {
+    if (isProviderLockedOut(provider)) {
+      continue;
+    }
+    
+    let colors = null;
+    if (provider === 'LOGODEV') {
+      colors = fetchLogoDev(domain);
+    } else if (provider === 'BRANDFETCH') {
+      colors = fetchBrandfetch(domain);
+    }
+    
+    if (colors && colors.primary) {
+      return colors; // Successfully found colors
+    }
+  }
+  return null;
+}
+
+/**
  * Helper to parse hex string into RGB object.
  */
 function hexToRgb(hex) {
+  if (!hex) return null;
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   return result ? {
     r: parseInt(result[1], 16),
@@ -49,21 +165,24 @@ function hexToRgb(hex) {
 }
 
 /**
- * Snaps a given hex color to the closest matching color in Gmail's valid background colors.
+ * Snaps a given hex color to the closest matching color in a given palette array.
  * Uses Euclidean distance in RGB color space.
+ * @param {string} targetHex - Hex color to snap.
+ * @param {string} paletteType - 'BACKGROUND_COLORS' or 'TEXT_COLORS' from CONFIG.
  */
-function findClosestGmailColor(targetHex) {
+function findClosestGmailColor(targetHex, paletteType = 'BACKGROUND_COLORS') {
   const targetRgb = hexToRgb(targetHex);
   if (!targetRgb) return "#ffffff"; // fallback
   
+  const palette = CONFIG[paletteType] || CONFIG.BACKGROUND_COLORS;
   let closestHex = "#ffffff";
   let minDistance = Infinity;
   
-  for (const hex of CONFIG.BACKGROUND_COLORS) {
+  for (const hex of palette) {
     const rgb = hexToRgb(hex);
     if (!rgb) continue;
     
-    // Calculate Euclidean distance between the target RGB and Gmail's RGB
+    // Euclidean distance for RGB math
     const rDiff = targetRgb.r - rgb.r;
     const gDiff = targetRgb.g - rgb.g;
     const bDiff = targetRgb.b - rgb.b;
@@ -79,24 +198,51 @@ function findClosestGmailColor(targetHex) {
 }
 
 /**
- * Determines whether white or black text provides better contrast against a background.
- * Uses the WCAG relative luminance formula.
+ * Calculates the relative luminance of an RGB color based on WCAG standard.
  */
-function getAccessibleTextColor(bgHex) {
-  const rgb = hexToRgb(bgHex);
-  if (!rgb) return "#000000"; // fallback
-  
-  // Calculate relative luminance
+function getLuminance(rgb) {
   const a = [rgb.r, rgb.g, rgb.b].map(function (v) {
     v /= 255;
     return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
   });
+  return a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+}
+
+/**
+ * Calculates the contrast ratio between two hex colors.
+ */
+function getContrastRatio(hex1, hex2) {
+  const rgb1 = hexToRgb(hex1);
+  const rgb2 = hexToRgb(hex2);
+  if (!rgb1 || !rgb2) return 1;
   
-  const luminance = a[0] * 0.2126 + a[1] * 0.7152 + a[2] * 0.0722;
+  const l1 = getLuminance(rgb1);
+  const l2 = getLuminance(rgb2);
   
-  // Return a valid Gmail light or dark text hex color
-  // Luminance > 0.179 implies a light background, so use dark text.
-  return luminance > 0.179 ? "#000000" : "#ffffff";
+  const brightest = Math.max(l1, l2);
+  const darkest = Math.min(l1, l2);
+  
+  return (brightest + 0.05) / (darkest + 0.05);
+}
+
+/**
+ * Applies contrast override based on WCAG math.
+ * If contrast between bg and text is too low, overrides text color.
+ */
+function getAccessibleTextColor(bgHex, textHex) {
+  const ratio = getContrastRatio(bgHex, textHex);
+  // WCAG standard minimum for normal text is 4.5:1
+  if (ratio >= 4.5) {
+    return textHex; // Contrast is acceptable
+  }
+  
+  // Contrast too low, calculate a high-contrast safe default
+  const bgRgb = hexToRgb(bgHex);
+  if (!bgRgb) return "#000000";
+  const bgLuminance = getLuminance(bgRgb);
+  
+  // If background is light (luminance > 0.179), use dark charcoal text, else pure white text
+  return bgLuminance > 0.179 ? "#000000" : "#ffffff";
 }
 
 /**
@@ -105,15 +251,20 @@ function getAccessibleTextColor(bgHex) {
 function applyBrandColorToLabel(label, term) {
   if (!CONFIG.ENABLE_BRANDING) return;
   
-  // Extrapolate a domain from the term (e.g., "Netflix" -> "netflix.com")
   if (!term) return;
   const domain = term.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() + '.com';
   
-  const brandColorHex = fetchBrandColor(domain);
-  if (!brandColorHex) return;
+  const colors = fetchBrandColorsWithFailover(domain);
+  if (!colors) return;
   
-  const safeBgColor = findClosestGmailColor(brandColorHex);
-  const safeTextColor = getAccessibleTextColor(safeBgColor);
+  // Dual-Snapping Math:
+  // 1. Snap Primary API color to Gmail Background Color
+  // 2. Snap Secondary API color to Gmail Text Color
+  const safeBgColor = findClosestGmailColor(colors.primary, 'BACKGROUND_COLORS');
+  const snappedTextColor = findClosestGmailColor(colors.secondary, 'TEXT_COLORS');
+  
+  // 3. Contrast Override
+  const safeTextColor = getAccessibleTextColor(safeBgColor, snappedTextColor);
   
   try {
     const labels = Gmail.Users.Labels.list('me').labels;
@@ -127,7 +278,7 @@ function applyBrandColorToLabel(label, term) {
 }
 
 /**
- * Daily scheduled task to scan for unbranded labels and apply Brandfetch colors.
+ * Daily scheduled task to scan for unbranded labels and apply colors.
  * Respects max_ops_per_day to avoid Google Quota exhaustion.
  */
 function sweepUnbrandedLabels() {
@@ -136,7 +287,6 @@ function sweepUnbrandedLabels() {
   const startTime = Date.now();
   const MAX_EXECUTION_TIME = 5.5 * 60 * 1000; // 5.5 minutes to avoid Google's 6-minute hard limit
   let opsCount = 0;
-  // Use a sensible default or the configurable MAX_OPS_PER_DAY
   const maxOps = CONFIG.QUOTA_MANAGEMENT ? CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY : 1000;
   
   try {
@@ -173,12 +323,13 @@ function sweepUnbrandedLabels() {
            const domain = baseTerm.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() + '.com';
            
            // Fetch color - consumes 1 operation
-           const brandHex = fetchBrandColor(domain);
+           const colors = fetchBrandColorsWithFailover(domain);
            opsCount += 1;
            
-           if (brandHex) {
-             const safeBg = findClosestGmailColor(brandHex);
-             const safeText = getAccessibleTextColor(safeBg);
+           if (colors && colors.primary) {
+             const safeBg = findClosestGmailColor(colors.primary, 'BACKGROUND_COLORS');
+             const snappedText = findClosestGmailColor(colors.secondary, 'TEXT_COLORS');
+             const safeText = getAccessibleTextColor(safeBg, snappedText);
              
              // Patch color - consumes 1 operation
              Gmail.Users.Labels.patch({ color: { backgroundColor: safeBg, textColor: safeText } }, 'me', label.id);

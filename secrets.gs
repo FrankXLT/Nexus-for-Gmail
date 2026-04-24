@@ -15,5 +15,6 @@ const SECRETS = {
   // Generate a free key at: https://aistudio.google.com/
   GEMINI_API_KEY: 'YOUR_GEMINI_API_KEY',
   BRANDFETCH_API_KEY: 'YOUR_BRANDFETCH_API_KEY',
+  LOGODEV_SECRET_KEY: 'YOUR_LOGODEV_SECRET_KEY',
   NOTIFICATION_EMAIL: 'your-email@gmail.com' 
 };

@@ -34,6 +34,7 @@ const CONFIG = {
   // Dynamic Label Coloring
   // Bypasses all external Betterbrand API calls if false.
   ENABLE_BRANDING: true,
+  BRANDING_PROVIDERS: ['LOGODEV', 'BRANDFETCH'],
   
   // Execution Settings
   // Determines how frequently Google's servers wake up to run the script.

@@ -122,6 +122,12 @@ Nexus will automatically email you when a new release is published. To update:
 
 ## 📅 Changelog
 
+### v2.4.0
+- **Multi-Provider Branding:** Introduced `BRANDING_PROVIDERS` priority array (Logo.dev and Brandfetch) to cascade through multiple APIs for maximum label coloring success.
+- **Circuit Breaker Quota Tracker:** Added a 24-hour rate limit lockout mechanism (`PropertiesService`) that intercepts HTTP 429 errors and prevents constant API spam, gracefully failing over to the next provider.
+- **Dual-Snapping Color Algorithm:** Upgraded Gmail API coloring to extract both primary and secondary branding hex codes. The engine mathematically snaps the primary color to valid Gmail backgrounds (via Euclidean distance), and snaps the secondary color to valid Gmail text hexes.
+- **Contrast Override Protection:** The dual-snapping logic now performs a final WCAG relative luminance check. If the snapped background and text contrast ratio drops below 4.5:1, the engine overrides the text color with a high-contrast safe default (pure white or dark charcoal) to guarantee perfect readability.
+
 ### v2.3.0
 - **Dynamic Label Branding with Brandfetch:** Replaced generative AI color guessing with deterministic Brandfetch API integration.
 - **Modular Architecture:** Extracted all external branding API calls, color math (Euclidean distance for RGB snapping and WCAG relative luminance), and label patching into a dedicated, toggleable `branding.gs` module.
