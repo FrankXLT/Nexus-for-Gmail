@@ -271,6 +271,17 @@ function applyBrandColorToLabel(label, term) {
     const advancedLabel = labels.find(l => l.name === label.getName());
     if (advancedLabel) {
       Gmail.Users.Labels.patch({ color: { backgroundColor: safeBgColor, textColor: safeTextColor } }, 'me', advancedLabel.id);
+      
+      // --- STATE MANAGER HOOK ---
+      const state = loadState();
+      if (!state.labels) state.labels = {};
+      if (!state.labels[advancedLabel.id]) {
+        state.labels[advancedLabel.id] = { name: advancedLabel.name, createdAt: Date.now() };
+      }
+      state.labels[advancedLabel.id].color = { bg: safeBgColor, text: safeTextColor };
+      state.labels[advancedLabel.id].provider = colors.provider;
+      state.labels[advancedLabel.id].lastBrandedAt = Date.now();
+      saveState(state);
     }
   } catch (e) {
     Logger.log("Failed to patch label color: " + e.message);
@@ -288,6 +299,11 @@ function sweepUnbrandedLabels() {
   const MAX_EXECUTION_TIME = 5.5 * 60 * 1000; // 5.5 minutes to avoid Google's 6-minute hard limit
   let opsCount = 0;
   const maxOps = CONFIG.QUOTA_MANAGEMENT ? CONFIG.QUOTA_MANAGEMENT.MAX_OPS_PER_DAY : 1000;
+  
+  // --- STATE MANAGER HOOK ---
+  const state = loadState();
+  if (!state.labels) state.labels = {};
+  let stateModified = false;
   
   try {
     const labelsResponse = Gmail.Users.Labels.list('me');
@@ -307,6 +323,11 @@ function sweepUnbrandedLabels() {
       
       // Look for user-created labels without custom colors
       if (label.type === 'user') {
+        const labelState = state.labels[label.id];
+        if (labelState && labelState.provider === 'USER') {
+          continue; // Skip labels explicitly branded by the user
+        }
+
         const parts = label.name.split('/');
         // Must be a direct sublabel of a configured entity
         const isEntitySublabel = parts.length === 2 && Object.keys(CONFIG.ENTITIES).includes(parts[0]);
@@ -334,11 +355,24 @@ function sweepUnbrandedLabels() {
              // Patch color - consumes 1 operation
              Gmail.Users.Labels.patch({ color: { backgroundColor: safeBg, textColor: safeText } }, 'me', label.id);
              opsCount += 1;
+             
+             // Update JSON State
+             if (!state.labels[label.id]) {
+               state.labels[label.id] = { name: label.name, createdAt: Date.now() };
+             }
+             state.labels[label.id].color = { bg: safeBg, text: safeText };
+             state.labels[label.id].provider = colors.provider;
+             state.labels[label.id].lastBrandedAt = Date.now();
+             stateModified = true;
            }
         }
       }
     }
   } catch (e) {
     Logger.log("Sweep Error: " + e.message);
+  } finally {
+    if (stateModified) {
+      saveState(state);
+    }
   }
 }

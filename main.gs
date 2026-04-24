@@ -666,6 +666,26 @@ function getOrCreateLabel(labelPath, baseTerm) {
   
   const newLabel = GmailApp.createLabel(labelPath);
   
+  // --- STATE MANAGER HOOK ---
+  try {
+    const labels = Gmail.Users.Labels.list('me').labels;
+    const advancedLabel = labels.find(l => l.name === labelPath);
+    if (advancedLabel) {
+      const state = loadState();
+      if (!state.labels) state.labels = {};
+      state.labels[advancedLabel.id] = {
+        name: advancedLabel.name,
+        createdAt: Date.now(),
+        color: { bg: "#ffffff", text: "#000000" },
+        provider: "DEFAULT",
+        lastBrandedAt: 0
+      };
+      saveState(state);
+    }
+  } catch (e) {
+    Logger.log("Failed to update state for new label: " + e.message);
+  }
+  
   // Trigger dynamic label coloring if enabled and the module is present
   if (typeof applyBrandColorToLabel === 'function') {
     applyBrandColorToLabel(newLabel, baseTerm || labelPath.split('/').pop());
