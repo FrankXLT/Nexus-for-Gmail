@@ -23,34 +23,23 @@
 */
 
 const CONFIG = {
-  // Nexus Version Tracker & Update Path
-  VERSION: '2.2.3', 
-  GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
+  // =========================================================================
+  // 1. CORE AI SETTINGS
+  // =========================================================================
   
   // We default to flash-lite because it is the most cost-effective model for new users,
   // capable of processing thousands of emails for pennies.
   GEMINI_MODEL: 'gemini-2.5-flash-lite', 
-  
-  // Dynamic Label Coloring
-  // Bypasses all external Betterbrand API calls if false.
-  ENABLE_BRANDING: true,
-  BRANDING_PROVIDERS: ['LOGODEV', 'BRANDFETCH'],
-  
-  // Execution Settings
-  // Determines how frequently Google's servers wake up to run the script.
-  JOB_INTERVAL_MINUTES: 5, 
-  
-  // Debugging & Telemetry
-  // When true, the script generates raw .txt files showing exactly what the AI returned.
-  // Invaluable if the AI starts formatting its JSON incorrectly.
-  DEBUG_MODE: true, 
-  DEBUG_FOLDER_NAME: 'Debug Logs',
-  
+
+  // =========================================================================
+  // 2. GMAIL ORGANIZATION & LABELS
+  // =========================================================================
+
   // Gmail Label Triggers
   // The system uses these native Gmail labels to track an email's status in the pipeline.
-  LABEL_READY: 'ai-ready',       // Apply this to emails you want processed
-  LABEL_COMPLETE: 'ai-done',     // Applied successfully
-  LABEL_FAILED: 'ai-failed',     // Applied if the AI crashes or returns bad data
+  LABEL_READY: 'ai/ready',       // Apply this to emails you want processed
+  LABEL_COMPLETE: 'ai/done',     // Applied successfully
+  LABEL_FAILED: 'ai/failed',     // Applied if the AI crashes or returns bad data
   
   // Parent Folders for Sorting
   // These are the top-level directories Nexus will create in your Gmail sidebar.
@@ -60,7 +49,8 @@ const CONFIG = {
   // Format: "Folder Name": "Description for the AI"
   ENTITIES: {
     "Financial": "Banks, lenders, credit cards, investment accounts, and tax entities.",
-    "Business": "Companies, retail stores, services, newsletters, and organizations.",
+    "Business": "Corporate entities, B2B services, general newsletters, and professional organizations not fitting other categories.",
+    "Shopping": "E-commerce platforms, retail department stores, grocery and specialty food vendors, and online marketplaces (e.g., Amazon, Walmart, Macy's, Wild Fork Foods).",
     "Education": "Establishments for education such as schools, school boards, colleges, and higher education.",
     "People": "Individual humans and personal contacts.",
     "Health": "Medical offices for doctors, hospitals, blood work, lab work, medical specialists, surgery, and mental health.",
@@ -69,10 +59,28 @@ const CONFIG = {
     "TV-Streaming": "Video streaming services, television networks, movie platforms, and subscriptions like Netflix or Hulu.",
     "News": "Newsletters, journalism, daily digests, and media publications.",
     "Utilities": "Internet, power, water, telecom providers, and essential home services.",
-    "Productivity": "Task management, note-taking apps, cloud storage, and workspace collaboration tools.",
+    "Productivity": "Task management, note-taking apps, cloud storage, and workspace collaboration tools and software.",
     "Gaming": "Video game stores, gaming platforms, server hosting, and game developer communications."
   },
-  
+
+  // Pre-loaded Purpose categories to help new users get started without having to 
+  // invent their own organizational structure from scratch.
+  DEFAULT_PURPOSES: [
+    'Accounts', 'Support', 'Memberships', 'News', 'Orders', 'Payments',
+    'Personal', 'Registration', 'Shipping', 'Statements', 'Subscriptions'
+  ],
+
+  // A strict allowlist for the programmatic validation gateway to prevent LLM hallucination
+  APPROVED_PURPOSES: [
+    'Accounts', 'Calendar', 'Credit Reports', 'Deposits', 'Discussions', 'Donations', 
+    'Events', 'Membership', 'Newsletters','Orders', 'Payments', 'Personal', 'Receipts', 'Refunds', 'Registration', 
+    'Returns', 'Service', 'Shipping', 'Statements', 'Subscriptions', 'Issues-Support'
+  ],
+
+  // =========================================================================
+  // 3. RULES & FILTERS
+  // =========================================================================
+
   // How strict the AI should be when deciding to flag an email.
   // Uncomment the rule you want to actively use.
   FLAG_RULES: {
@@ -88,29 +96,7 @@ const CONFIG = {
     // STARRED: "Moderate: True for ongoing conversational threads, or highly critical reference items like flight tickets and tax documents.",
     // STARRED: "Lenient: True for any ongoing thread, receipt, order confirmation, or shipping update."
   },
-  
-  // Pre-loaded Purpose categories to help new users get started without having to 
-  // invent their own organizational structure from scratch.
-  DEFAULT_PURPOSES: [
-    'Accounts', 'Credit Reports', 'Support',
-    'Memberships', 'News', 'Orders', 'Payments',
-    'Personal', 'Registration', 'Shipping', 
-    'Statements', 'Subscriptions' // <-- Updated
-  ],
 
-  // BLACKLIST CONTROLS
-  // Prevent the AI from categorizing or creating specific labels.
-  BLACKLIST: {
-    TERMS: ['Alerts', 'Alert', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice', 'Updates', 'Update', 'Offers'],
-    
-    // If true: The engine completely ignores the term if the AI suggests it.
-    DO_NOT_USE: true, 
-    
-    // If true: The engine will use the term if you ALREADY have a label for it, 
-    // but will NOT create a new Gmail label if it doesn't exist.
-    DO_NOT_CREATE: true 
-  },
-  
   // AUTO-TAGGING CONTROLS
   // Automatically creates a native Gmail filter to tag incoming mail.
   AUTO_TAGGING: {
@@ -119,10 +105,48 @@ const CONFIG = {
     EXCLUDE_CATEGORIES: ['Promotions', 'Social', 'Forums'] 
   },
 
-  // ==========================================
+  // BLACKLIST CONTROLS
+  // Prevent the AI from categorizing or creating specific labels.
+  BLACKLIST: {
+    ENTITIES: ['Spam', 'Unknown', 'Null', 'N/A', 'None'],
+    PURPOSES: ['Alerts', 'Alert', 'Spam', 'Unknown', 'Null', 'N/A', 'None', 'Shipping Notice', 'Updates', 'Update', 'Offers'],
+    
+    // If true: The engine completely ignores the term if the AI suggests it.
+    DO_NOT_USE: true, 
+    
+    // If true: The engine will use the term if you ALREADY have a label for it, 
+    // but will NOT create a new Gmail label if it doesn't exist.
+    DO_NOT_CREATE: true 
+  },
+
+  // =========================================================================
+  // 4. BRANDING & AESTHETICS
+  // =========================================================================
+
+  // Dynamic Label Coloring
+  // Bypasses all external Betterbrand API calls if false.
+  ENABLE_BRANDING: true,
+  BRAND_FOLDER_NAME: "Brand Dictionaries", // Folder containing the .less files
+
+  // =========================================================================
+  // 5. SELF-TUNING ENGINE CONFIGURATION
+  // =========================================================================
+  
+  ENABLE_SELF_TUNING: true, 
+  CORRECTION_LABEL: "ai/correct", 
+  CACHE_RETENTION_DAYS: 21, 
+  CACHE_FOLDER_NAME: "Cache",
+
+  // =========================================================================
+  // 6. EXECUTION & LIMITS
+  // =========================================================================
+
+  // Execution Settings
+  // Determines how frequently Google's servers wake up to run the script.
+  JOB_INTERVAL_MINUTES: 5, 
+
   // QUOTA & BACKLOG MANAGEMENT
   // Protects your Google limits when processing massive email backlogs.
-  // ==========================================
   QUOTA_MANAGEMENT: {
     // Emails received within this many hours bypass the throttle completely.
     FRESH_WINDOW_HOURS: 72, 
@@ -130,22 +154,36 @@ const CONFIG = {
     // Maximum Gmail API operations allowed per 24 hours. Once hit, older emails are paused.
     // Google's absolute hard limit is 20,000. 14,000 leaves plenty of room for normal Gmail use.
     // This leaves 6000 ops for the user to interact with their inbox without hitting the limit (600 emails per 24 hours). Adjust based on your usage patterns.
-    MAX_OPS_PER_DAY: 14000, 
+    MAX_OPS_PER_DAY: 15000, 
     
-    // Estimated operations per email processed (Fetching, adding 4+ labels, starring, removing ready, etc.)
-    OPS_PER_EMAIL: 10 
+    // Estimated operations per email processed (Fetching, bulk label modify, starring, etc.)
+    OPS_PER_EMAIL: 3
   },
-
+  
   // Safety & Throttle Limits
   // MAX_EMAILS_PER_BATCH: Prevents the AI prompt from becoming too large and timing out.
   // MAX_BATCHES_PER_RUN: Prevents the script from exceeding Google's 6-minute execution limit.
   MAX_EMAILS_PER_BATCH: 5, 
   MAX_BATCHES_PER_RUN: 20,  
   
+  // =========================================================================
+  // 7. SYSTEM & ADVANCED
+  // =========================================================================
+
+  // Nexus Version Tracker & Update Path
+  VERSION: '2.6.0', 
+  GITHUB_REPO: 'FrankXLT/Nexus-for-Gmail',
+
   // Google Drive Architecture
   // The master folder where logs and the system prompt are stored.
   MASTER_FOLDER_NAME: 'Nexus for Gmail', 
-  
+
+  // Debugging & Telemetry
+  // When true, the script generates raw .txt files showing exactly what the AI returned.
+  // Invaluable if the AI starts formatting its JSON incorrectly.
+  DEBUG_MODE: true, 
+  DEBUG_FOLDER_NAME: 'Debug Logs',
+
   // Advanced Gmail API Hex Colors
   // Google Apps Script natively only supports 16 basic colors. We use the Advanced 
   // REST API and this specific hex palette to access Gmail's modern pastel colors.
@@ -170,11 +208,3 @@ const CONFIG = {
     "#822111", "#a46a21", "#aa8831", "#076239", "#1a764d", "#1c4587", "#41236d", "#83334c"
   ]
 };
-
-// =========================================================================
-// V2.0.0 SELF-TUNING ENGINE CONFIGURATION
-// =========================================================================
-const ENABLE_SELF_TUNING = true; 
-const CORRECTION_LABEL = "ai-correct"; 
-const CACHE_RETENTION_DAYS = 21; 
-const CACHE_FOLDER_NAME = "Cache";

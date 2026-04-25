@@ -1,19 +1,54 @@
 /**
+ * DEPRECATED: Use bulkSaveStateToCache instead to prevent Drive API rate limits.
  * Purpose: Appends the AI's original decision to today's cache file.
- * Input: messageId (String), stateObj (Object)
- * Output: Modifies the cache file in Google Drive.
- * Importance: Saves the original AI classification state so it can be compared against user corrections later.
  */
-function saveStateToCache(messageId, stateObj) {
+function deprecated_saveStateToCache(messageId, stateObj) {
+  throw new Error("saveStateToCache is deprecated. Please use bulkSaveStateToCache instead.");
+}
+
+/**
+ * Purpose: Bulk appends the AI's original decisions to today's cache file.
+ * Input: batchArray (Array of objects with messageId and state)
+ * Output: Modifies the cache file in Google Drive in a single operation.
+ * Importance: Saves the original AI classification states efficiently, reducing Drive API I/O operations and preventing timeouts.
+ */
+function bulkSaveStateToCache(batchArray) {
+  if (!batchArray || batchArray.length === 0) return;
+  
   const folder = getOrCreateCacheFolder();
   const dateStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd");
   const fileName = `Cache_${dateStr}.json`;
   
-  let cacheFile = getOrCreateFile(folder, fileName, "{}");
-  let cacheData = JSON.parse(cacheFile.getBlob().getDataAsString());
+  let attempts = 0;
+  const maxAttempts = 3;
   
-  cacheData[messageId] = stateObj;
-  cacheFile.setContent(JSON.stringify(cacheData));
+  while (attempts < maxAttempts) {
+    try {
+      let cacheFile = getOrCreateFile(folder, fileName, "{}");
+      let fileContent = cacheFile.getBlob().getDataAsString();
+      let cacheData = {};
+      if (fileContent) {
+        cacheData = JSON.parse(fileContent);
+      }
+      
+      for (let i = 0; i < batchArray.length; i++) {
+        const item = batchArray[i];
+        if (item.messageId && item.state) {
+          cacheData[item.messageId] = item.state;
+        }
+      }
+      
+      cacheFile.setContent(JSON.stringify(cacheData));
+      return; // Success
+    } catch (e) {
+      attempts++;
+      if (attempts >= maxAttempts) {
+        Logger.log("Critical Error: Failed to bulk save tuning cache after multiple attempts. The batch of tuning data was lost. Error: " + e.toString());
+      } else {
+        Utilities.sleep(2000 * Math.pow(2, attempts - 1)); // Exponential backoff: 2s, 4s...
+      }
+    }
+  }
 }
 
 /**
@@ -23,9 +58,9 @@ function saveStateToCache(messageId, stateObj) {
  * Importance: Captures user manual corrections to build a dataset for self-tuning.
  */
 function processCorrections() {
-  if (!ENABLE_SELF_TUNING) return;
+  if (!CONFIG.ENABLE_SELF_TUNING) return;
   
-  const label = GmailApp.getUserLabelByName(CORRECTION_LABEL);
+  const label = GmailApp.getUserLabelByName(CONFIG.CORRECTION_LABEL);
   if (!label) return;
   
   const threads = label.getThreads();
@@ -41,7 +76,7 @@ function processCorrections() {
     const msgId = lastMessage.getId();
     
     // Extract current manually corrected state
-    const currentLabels = thread.getLabels().map(l => l.getName()).filter(n => n !== CORRECTION_LABEL && n !== 'ai-ready' && n !== 'ai-done');
+    const currentLabels = thread.getLabels().map(l => l.getName()).filter(n => n !== CONFIG.CORRECTION_LABEL && n !== 'ai-ready' && n !== 'ai-done');
     const isImportant = thread.isImportant();
     const hasStar = thread.hasStarredMessages();
 
@@ -73,7 +108,7 @@ function processCorrections() {
  * Importance: Synthesizes user corrections into automated rules, enabling the system to learn and adapt over time.
  */
 function tuneSystemPrompt() {
-  if (!ENABLE_SELF_TUNING) return;
+  if (!CONFIG.ENABLE_SELF_TUNING) return;
 
   const rootFolder = getRootNexusFolder();
   const ledgerFile = getOrCreateFile(rootFolder, "Nexus_Corrections_Ledger.json", "[]");
@@ -85,7 +120,7 @@ function tuneSystemPrompt() {
     return; // Nothing to tune
   }
 
-  const docId = PropertiesService.getUserProperties().getProperty('SYSTEM_PROMPT_DOC_ID');
+  const docId = PropertiesService.getUserProperties().getProperty('PROMPT_DOC_ID');
   const doc = DocumentApp.openById(docId);
   const body = doc.getBody();
   const text = body.getText();
@@ -136,7 +171,7 @@ TASK:
 }
 
 /**
- * Purpose: Purges daily cache files older than CACHE_RETENTION_DAYS.
+ * Purpose: Purges daily cache files older than CONFIG.CACHE_RETENTION_DAYS.
  * Input: None
  * Output: Trashes old cache files in Google Drive.
  * Importance: Prevents infinite storage growth by cleaning up stale data.
@@ -145,7 +180,7 @@ function cleanupCache() {
   const folder = getOrCreateCacheFolder();
   const files = folder.getFiles();
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - CACHE_RETENTION_DAYS);
+  cutoffDate.setDate(cutoffDate.getDate() - CONFIG.CACHE_RETENTION_DAYS);
 
   while (files.hasNext()) {
     const file = files.next();
@@ -163,8 +198,8 @@ function cleanupCache() {
 
 function getOrCreateCacheFolder() {
   const rootFolder = getRootNexusFolder();
-  const folders = rootFolder.getFoldersByName(CACHE_FOLDER_NAME);
-  return folders.hasNext() ? folders.next() : rootFolder.createFolder(CACHE_FOLDER_NAME);
+  const folders = rootFolder.getFoldersByName(CONFIG.CACHE_FOLDER_NAME);
+  return folders.hasNext() ? folders.next() : rootFolder.createFolder(CONFIG.CACHE_FOLDER_NAME);
 }
 
 function getOrCreateFile(folder, fileName, defaultContent) {

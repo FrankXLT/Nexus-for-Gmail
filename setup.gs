@@ -39,6 +39,13 @@ function initializeDriveSystem() {
   let logFolders = masterFolder.getFoldersByName("Logs");
   let logsFolder = logFolders.hasNext() ? logFolders.next() : masterFolder.createFolder("Logs");
   
+  if (CONFIG.ENABLE_BRANDING && CONFIG.BRAND_FOLDER_NAME) {
+    let brandFolders = masterFolder.getFoldersByName(CONFIG.BRAND_FOLDER_NAME);
+    if (!brandFolders.hasNext()) {
+      masterFolder.createFolder(CONFIG.BRAND_FOLDER_NAME);
+    }
+  }
+  
   // Pre-build all the required labels in Gmail safely
   initializeLabels();
   
@@ -59,7 +66,6 @@ function initializeDriveSystem() {
     
     // Save the internal IDs for the main engine to use later
     props.setProperty('PROMPT_DOC_ID', promptDoc.getId());
-    props.setProperty('LOGS_FOLDER_ID', logsFolder.getId());
     
     Logger.log("Drive system and Gmail labels initialized! Open your prompt here: " + promptDoc.getUrl());
   }
@@ -179,6 +185,7 @@ CRITICAL TAXONOMY RULES:
   - Route all Calendar invites/accepts strictly to 'Calendar'.
   - 'Event Notice' must be mapped directly to 'Events'.
   - NEVER use 'Support'. Map to 'Issues-Support'.
+  - CRITICAL RULE: If the entityType is 'News', do NOT use 'News', 'Daily', or 'Newsletter' as the purpose (return null instead). However, specific administrative purposes (e.g., 'Statement', 'Account Update', 'Announcements') are strictly allowed and should be applied if present.
   - If you are unsure or it does not fit a clear category, return null.
 - category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "People" and this is a conversational email, strongly favor "Primary" over "Updates".
 - isImportant: Boolean ({{IMPORTANT_RULE}}). ALWAYS set to true for "Alerts", do NOT use "Alert" or "Alerts" as a purpose.

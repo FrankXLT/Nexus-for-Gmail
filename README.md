@@ -12,7 +12,7 @@ Nexus is a self-hosted, highly configurable Google Apps Script that acts as an i
 * **Automated Branding:** New entity labels are created clean (black text on white). A daily background job automatically evaluates these labels and applies matching primary and secondary brand colors using the Advanced Gmail API.
 * **Smart Blacklisting:** Absolute control over the AI. Explicitly forbid the engine from using certain labels or prevent it from creating unwanted new ones.
 * **Contextual Flags:** Intelligently applies "Important" markers based on required actions in the email body and restricts "Starred" markers to active conversations.
-* **Hyper-Efficient Processing:** Groups incoming emails by sender domain before processing, allowing it to classify dozens of emails simultaneously while consuming minimal API tokens.
+* **Hyper-Efficient Processing:** Groups incoming emails by sender domain before processing, allowing it to classify dozens of emails simultaneously while consuming minimal API tokens. V2.5.0 now utilizes bulk Advanced API label modification, resulting in up to 80% fewer Google Workspace I/O operations per email!
 * **Deep Telemetry:** Automatically generates daily, visually styled HTML execution logs (with system cleanup tracking) and raw `.txt` debug logs directly in your Google Drive.
 * **Automated Update Checking:** Pings GitHub once a day and emails you automatically when a new release is available.
 
@@ -121,6 +121,18 @@ Nexus will automatically email you when a new release is published. To update:
 ---
 
 ## 📅 Changelog
+
+### v2.6.0
+- **Programmatic Validation Gateway:** Introduced a strict `sanitizePurpose` validation function and `APPROVED_PURPOSES` allowlist to definitively eliminate LLM "label creep" and pluralization hallucinations, intelligently routing unapproved AI outputs to a generic 'Review' label.
+- **Deprecation of `saveStateToCache`:** Deprecated the individual state caching function in favor of a highly optimized `bulkSaveStateToCache` method, drastically reducing Google Drive API rate limiting issues during background batch processing.
+- **Dynamic Branding Directory Lookup:** Deprecated the reliance on the static `BRAND_FOLDER_ID` user property. The engine now dynamically searches the user's master Drive directory for the `BRAND_FOLDER_NAME` specified in configuration.
+- **Configuration UX Overhaul:** Completely reorganized `config.gs` into a logical, top-down flow designed for new users, moving critical AI and taxonomy settings to the top while pushing system and internal hex variables to the bottom.
+- **System Property Bug Fix:** Resolved a critical `Invalid argument: id` exception in the self-tuning engine by pointing the document lookup to the correct `PROMPT_DOC_ID` property key instead of the deprecated `SYSTEM_PROMPT_DOC_ID`.
+
+### v2.5.0
+- **Advanced API Batch Modification:** Rewrote the core email processing loop to collect all required label additions and removals into a single `Gmail.Users.Threads.modify` call. This reduces Google Workspace I/O operations by up to 80% per email, significantly improving execution latency.
+- **Aggressive Quota Optimization:** Reduced the estimated `OPS_PER_EMAIL` from 8 to 3, allowing the system to safely process up to 3,333 backlog emails per day under the default 10,000 ops limit.
+- **Global Label ID Caching:** Introduced `GLOBAL_LABEL_ID_CACHE` to centralize Advanced Gmail API label ID lookups, eliminating redundant network calls across `getOrCreateLabel`, `setLabelColor`, and the main processing loop.
 
 ### v2.4.0
 - **Multi-Provider Branding:** Introduced `BRANDING_PROVIDERS` priority array (Logo.dev and Brandfetch) to cascade through multiple APIs for maximum label coloring success.

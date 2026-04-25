@@ -127,15 +127,18 @@ function mainPipeline() {
   
   const promptTemplate = DocumentApp.openById(promptDocId).getBody().getText();
 
+  const allUserLabels = GmailApp.getUserLabels(); // Single API call for the batch
+
   let existingCorrespondentTags = [];
   for (const entity of Object.keys(CONFIG.ENTITIES)) {
-    existingCorrespondentTags.push(...getExistingTags(entity));
+    existingCorrespondentTags.push(...getExistingTags(entity, allUserLabels));
   }
-  const existingPurposeTags = getExistingTags(CONFIG.PARENT_LABEL_PURPOSE);
+  const existingPurposeTags = getExistingTags(CONFIG.PARENT_LABEL_PURPOSE, allUserLabels);
   const availableBgColors = CONFIG.BACKGROUND_COLORS.join(', ');
   const availableTextColors = CONFIG.TEXT_COLORS.join(', ');
 
   let batchesProcessed = 0;
+  let stateCacheBatch = [];
   
   for (const domain in buckets) {
     if (batchesProcessed >= CONFIG.MAX_BATCHES_PER_RUN) break;
@@ -188,8 +191,8 @@ function mainPipeline() {
       let isNewCorrespondent = !GmailApp.getUserLabelByName(correspondentPath);
       
       // Blacklist Check: Correspondent
-      if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name))) {
-        correspondentLabel = getOrCreateLabel(correspondentPath, result.name);
+      if (!(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(result.name, 'ENTITIES'))) {
+        correspondentLabel = getOrCreateLabel(correspondentPath, result.name, 'ENTITIES');
         if (correspondentLabel && isNewCorrespondent) {
           let bgColor = "#ffffff";
           let textColor = "#000000";
@@ -199,21 +202,35 @@ function mainPipeline() {
 
       for (let j = 0; j < result.emails.length; j++) {
         const emailAI = result.emails[j];
-        if (emailAI.index >= domainThreads.length || emailAI.index < 0) continue; 
-        
-        const thread = domainThreads[emailAI.index]; 
-        const latestMessage = thread.getMessages()[thread.getMessages().length - 1];
+        if (emailAI.index >= domainThreads.length || emailAI.index < 0) continue;
+
+        // Enforce the programmatic validation gateway
+        emailAI.purpose = sanitizePurpose(emailAI.purpose);
+
+        const thread = domainThreads[emailAI.index];        const latestMessage = thread.getMessages()[thread.getMessages().length - 1];
         
         let appliedTags = [CONFIG.LABEL_COMPLETE];
         
+        let addLabelIds = [];
+        let removeLabelIds = [];
+        let labelIdMap = getLabelIdMap();
+
+        // Programmatic Safety Filter for "News"
+        if (result.entityType === 'News' && emailAI.purpose) {
+          let pLower = emailAI.purpose.trim().toLowerCase();
+          if (pLower === 'news' || pLower === 'newsletter' || pLower === 'daily') {
+            emailAI.purpose = null;
+          }
+        }
+        
         // Apply Correspondent if it passed the blacklist
         if (correspondentLabel) {
-          thread.addLabel(correspondentLabel); 
+          if (labelIdMap[correspondentPath]) addLabelIds.push(labelIdMap[correspondentPath]);
           appliedTags.push(correspondentPath);
         }
 
         // Blacklist Check: Purpose
-        if (emailAI.purpose && !(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(emailAI.purpose))) {
+        if (emailAI.purpose && !(CONFIG.BLACKLIST.DO_NOT_USE && isBlacklisted(emailAI.purpose, 'PURPOSES'))) {
           let pLower = emailAI.purpose.trim().toLowerCase();
           if (pLower === 'update' || pLower === 'updates') {
             emailAI.category = "Updates";
@@ -222,28 +239,31 @@ function mainPipeline() {
           } else {
             let purposePath = CONFIG.PARENT_LABEL_PURPOSE ? `${CONFIG.PARENT_LABEL_PURPOSE}/${emailAI.purpose}` : emailAI.purpose;
             let isNewPurpose = !GmailApp.getUserLabelByName(purposePath);
-            let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose);
+            let purposeLabel = getOrCreateLabel(purposePath, emailAI.purpose, 'PURPOSES');
             
             if (purposeLabel) {
               if (isNewPurpose) {
                 setLabelColor(purposePath, "#434343", "#ffffff"); // Dark Gray default
               }
-              thread.addLabel(purposeLabel);
+              // Refresh map in case a new label was created and ID cache was cleared
+              labelIdMap = getLabelIdMap();
+              if (labelIdMap[purposePath]) addLabelIds.push(labelIdMap[purposePath]);
               appliedTags.push(purposePath);
             }
           }
         }
 
         if (["Primary", "Promotions", "Social", "Updates", "Forums"].includes(emailAI.category)) {
-          setSystemCategory(thread.getId(), emailAI.category);
+          const categoryMap = { "Promotions": "CATEGORY_PROMOTIONS", "Social": "CATEGORY_SOCIAL", "Updates": "CATEGORY_UPDATES", "Forums": "CATEGORY_FORUMS", "Primary": "CATEGORY_PERSONAL" };
+          addLabelIds.push(categoryMap[emailAI.category]);
           appliedTags.push(`Category: ${emailAI.category}`);
         }
 
         if (emailAI.isImportant) {
-          thread.markImportant();
+          addLabelIds.push("IMPORTANT");
           appliedTags.push("Important");
         } else {
-          thread.markUnimportant();
+          removeLabelIds.push("IMPORTANT");
         }
 
         if (emailAI.isStarred) {
@@ -254,21 +274,28 @@ function mainPipeline() {
         }
 
         // --- V2.0.0 CACHE INJECTION ---
-        if (typeof ENABLE_SELF_TUNING !== 'undefined' && ENABLE_SELF_TUNING) {
+        if (typeof CONFIG.ENABLE_SELF_TUNING !== 'undefined' && CONFIG.ENABLE_SELF_TUNING) {
           let aiLabels = appliedTags.filter(t => t !== CONFIG.LABEL_COMPLETE && !t.startsWith("Category:") && t !== "Important" && t !== "Starred");
           
-          saveStateToCache(latestMessage.getId(), {
-            labels: aiLabels,
-            entity: result.entityType || "Unknown",
-            isImportant: emailAI.isImportant || false,
-            isStarred: emailAI.isStarred || false,
-            timestamp: new Date().getTime()
+          stateCacheBatch.push({
+            messageId: latestMessage.getId(),
+            state: {
+              labels: aiLabels,
+              entity: result.entityType || "Unknown",
+              isImportant: emailAI.isImportant || false,
+              isStarred: emailAI.isStarred || false,
+              timestamp: new Date().getTime()
+            }
           });
         }
 
-        thread.addLabel(completeLabel);
-        thread.removeLabel(readyLabel);
-        thread.removeLabel(failedLabel); // Strip ai-failed if it exists
+        if (labelIdMap[CONFIG.LABEL_COMPLETE]) addLabelIds.push(labelIdMap[CONFIG.LABEL_COMPLETE]);
+        if (labelIdMap[CONFIG.LABEL_READY]) removeLabelIds.push(labelIdMap[CONFIG.LABEL_READY]);
+        if (labelIdMap[CONFIG.LABEL_FAILED]) removeLabelIds.push(labelIdMap[CONFIG.LABEL_FAILED]);
+
+        try { 
+          Gmail.Users.Threads.modify({ addLabelIds: addLabelIds, removeLabelIds: removeLabelIds }, 'me', thread.getId()); 
+        } catch (e) {}
 
         batchLog.emails.push({
           subject: latestMessage.getSubject(),
@@ -284,11 +311,20 @@ function mainPipeline() {
         const thread = domainThreads[k];
         const failMsg = thread.getMessages()[thread.getMessages().length - 1];
         
-        thread.addLabel(failedLabel);
+        let addLabelIds = [];
+        let removeLabelIds = [];
+        let labelIdMap = getLabelIdMap();
+        
+        if (labelIdMap[CONFIG.LABEL_FAILED]) addLabelIds.push(labelIdMap[CONFIG.LABEL_FAILED]);
 
         if (apiResult.is5xx) {
             let tags = [CONFIG.LABEL_FAILED, "Retained ai-ready (5xx)"];
             if (apiResult.error) tags.push("error:" + apiResult.error);
+            
+            try { 
+              Gmail.Users.Threads.modify({ addLabelIds: addLabelIds, removeLabelIds: removeLabelIds }, 'me', thread.getId()); 
+            } catch (e) {}
+
             batchLog.emails.push({
               subject: failMsg.getSubject(),
               snippet: failMsg.getPlainBody().substring(0, 60).replace(/\s+/g, ' ') + "...",
@@ -299,11 +335,15 @@ function mainPipeline() {
             continue; // Keep ai-ready, skip quarantine
         }
 
-        thread.removeLabel(readyLabel);
+        if (labelIdMap[CONFIG.LABEL_READY]) removeLabelIds.push(labelIdMap[CONFIG.LABEL_READY]);
         
         let tags = [CONFIG.LABEL_FAILED];
         if (apiResult.error) tags.push("error:" + apiResult.error);
         else if (!apiResult.success && !result) tags.push("error:[Parse Error]: Invalid JSON returned by AI");
+
+        try { 
+          Gmail.Users.Threads.modify({ addLabelIds: addLabelIds, removeLabelIds: removeLabelIds }, 'me', thread.getId()); 
+        } catch (e) {}
 
         batchLog.emails.push({
           subject: failMsg.getSubject(),
@@ -316,6 +356,10 @@ function mainPipeline() {
     }
     
     jobLog.batches.push(batchLog);
+  }
+
+  if (stateCacheBatch.length > 0) {
+    bulkSaveStateToCache(stateCacheBatch);
   }
 
   if (jobLog.batches.length > 0) {
@@ -434,7 +478,7 @@ function writeDailyLog(jobLog, logsFolderId) {
       td { padding: 4px 8px; border-bottom: 1px solid var(--border-td); word-wrap: break-word; overflow-wrap: break-word; }
       a.subject-link { color: var(--link); text-decoration: none; font-weight: bold; }
       .snippet { font-size: 10px; color: var(--text-sub); font-style: italic; display: block; margin-top: 2px; }
-      .tag { display: inline-block; padding: 2px 4px; border-radius: 2px; font-size: 10px; margin: 1px; text-decoration: none; }
+      .tag { display: inline-block; padding: 2px 4px; border-radius: 2px; font-size: 10px; margin: 1px; none; }
       .tag-before { background: var(--bg-tag); color: var(--text-tag); }
       .tag-after { background: var(--bg-tag-success); color: var(--text-tag-success); }
       .tag-fail { background: var(--bg-tag-fail); color: var(--text-tag-fail); }
@@ -599,6 +643,25 @@ function extractDomain(rawSender) {
   return match ? match[1].toLowerCase() : rawSender.split('@').pop().toLowerCase();
 }
 
+let GLOBAL_LABEL_ID_CACHE = null;
+
+function getLabelIdMap() {
+  if (!GLOBAL_LABEL_ID_CACHE) {
+    GLOBAL_LABEL_ID_CACHE = {};
+    try {
+      const res = Gmail.Users.Labels.list('me');
+      if (res && res.labels) {
+        res.labels.forEach(l => GLOBAL_LABEL_ID_CACHE[l.name] = l.id);
+      }
+    } catch (e) {}
+  }
+  return GLOBAL_LABEL_ID_CACHE;
+}
+
+function clearLabelIdCache() {
+  GLOBAL_LABEL_ID_CACHE = null;
+}
+
 /**
  * Purpose: Applies a specified background and text color to a Gmail label.
  * Input: labelName (String), backgroundColor (String), textColor (String)
@@ -607,23 +670,11 @@ function extractDomain(rawSender) {
  */
 function setLabelColor(labelName, backgroundColor, textColor) {
   try {
-    const labels = Gmail.Users.Labels.list('me').labels;
-    const label = labels.find(l => l.name === labelName);
-    if (!label) return;
-    Gmail.Users.Labels.patch({ color: { backgroundColor, textColor } }, 'me', label.id);
+    const map = getLabelIdMap();
+    const labelId = map[labelName];
+    if (!labelId) return;
+    Gmail.Users.Labels.patch({ color: { backgroundColor, textColor } }, 'me', labelId);
   } catch (e) {}
-}
-
-/**
- * Purpose: Assigns a built-in Gmail category to a thread.
- * Input: threadId (String), categoryName (String)
- * Output: Modifies the thread's labels via the Advanced Gmail API.
- * Importance: Properly sorts emails into Gmail's native category tabs.
- */
-function setSystemCategory(threadId, categoryName) {
-  const categoryMap = { "Promotions": "CATEGORY_PROMOTIONS", "Social": "CATEGORY_SOCIAL", "Updates": "CATEGORY_UPDATES", "Forums": "CATEGORY_FORUMS", "Primary": "CATEGORY_PERSONAL" };
-  if (!categoryMap[categoryName]) return;
-  try { Gmail.Users.Threads.modify({ addLabelIds: [categoryMap[categoryName]] }, 'me', threadId); } catch (e) {}
 }
 
 /**
@@ -655,32 +706,33 @@ function getExistingTags(parentCategoryName) {
  * Output: Returns a GmailLabel object or null if blacklisted.
  * Importance: Ensures the necessary label structure exists before trying to apply it to a thread.
  */
-function getOrCreateLabel(labelPath, baseTerm) {
+function getOrCreateLabel(labelPath, baseTerm, listType, brandDictionary) {
   let label = GmailApp.getUserLabelByName(labelPath);
   if (label) return label; // Label exists, safe to return
   
   // Label doesn't exist. Check if we are forbidden from creating it.
-  if (baseTerm && CONFIG.BLACKLIST.DO_NOT_CREATE && isBlacklisted(baseTerm)) {
+  if (baseTerm && listType && CONFIG.BLACKLIST.DO_NOT_CREATE && isBlacklisted(baseTerm, listType)) {
     return null; 
   }
   
   const newLabel = GmailApp.createLabel(labelPath);
+  clearLabelIdCache(); // Force refresh for the next getLabelIdMap() call
   
   // --- STATE MANAGER HOOK ---
   try {
-    const labels = Gmail.Users.Labels.list('me').labels;
-    const advancedLabel = labels.find(l => l.name === labelPath);
-    if (advancedLabel) {
-      const state = loadState();
+    let map = getLabelIdMap();
+    let labelId = map[labelPath];
+    if (labelId) {
+      const state = typeof loadState === 'function' ? loadState() : {};
       if (!state.labels) state.labels = {};
-      state.labels[advancedLabel.id] = {
-        name: advancedLabel.name,
+      state.labels[labelId] = {
+        name: labelPath,
         createdAt: Date.now(),
         color: { bg: "#ffffff", text: "#000000" },
         provider: "DEFAULT",
         lastBrandedAt: 0
       };
-      saveState(state);
+      if (typeof saveState === 'function') saveState(state);
     }
   } catch (e) {
     Logger.log("Failed to update state for new label: " + e.message);
@@ -688,7 +740,7 @@ function getOrCreateLabel(labelPath, baseTerm) {
   
   // Trigger dynamic label coloring if enabled and the module is present
   if (typeof applyBrandColorToLabel === 'function') {
-    applyBrandColorToLabel(newLabel, baseTerm || labelPath.split('/').pop());
+    applyBrandColorToLabel(newLabel, baseTerm || labelPath.split('/').pop(), brandDictionary);
   }
   
   return newLabel;
@@ -700,10 +752,10 @@ function getOrCreateLabel(labelPath, baseTerm) {
  * Output: Returns a boolean indicating if the term is blacklisted.
  * Importance: Prevents the creation or usage of labels that the user has explicitly forbidden.
  */
-function isBlacklisted(term) {
-  if (!term || !CONFIG.BLACKLIST || !CONFIG.BLACKLIST.TERMS) return false;
+function isBlacklisted(term, listType) {
+  if (!term || !CONFIG.BLACKLIST || !CONFIG.BLACKLIST[listType]) return false;
   const lowerTerm = term.toLowerCase();
-  return CONFIG.BLACKLIST.TERMS.some(t => t.toLowerCase() === lowerTerm);
+  return CONFIG.BLACKLIST[listType].some(t => t.toLowerCase() === lowerTerm);
 }
 
 /**
@@ -841,4 +893,59 @@ Format:
       props.setProperty('QUOTA_DATA', JSON.stringify(quotaData));
     }
   } catch (e) {}
+}
+
+/**
+ * Validates and normalizes the AI's purpose hallucination.
+ * Acts as a gateway to prevent label creep.
+ * @param {string} aiPurposeString
+ * @returns {string|null} The normalized string, "Review" if hallucinated, or null.
+ */
+function sanitizePurpose(aiPurposeString) {
+  // 1. Type Check
+  if (!aiPurposeString || typeof aiPurposeString !== 'string' || aiPurposeString.trim() === '') {
+    return null;
+  }
+
+  // 2. Trimming & Consistent Casing (Title Case)
+  let normalized = aiPurposeString.trim().toLowerCase()
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+
+  normalized = normalized.split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join('-');
+
+  // 3. Plural Normalization
+  if (normalized !== 'News' && normalized !== 'Issues-Support') {
+    if (normalized.endsWith('ies')) {
+      normalized = normalized.slice(0, -3) + 'y';
+    } else if (normalized.endsWith('es') && !normalized.endsWith('sses')) {
+      normalized = normalized.slice(0, -1);
+    } else if (normalized.endsWith('s') && !normalized.endsWith('ss') && !normalized.endsWith('us') && !normalized.endsWith('is')) {
+      normalized = normalized.slice(0, -1);
+    }
+  }
+
+  // 4. Sub-Category Consolidation
+  const mappings = {
+    "Return Request": "Return",
+    "Return Instruction": "Return",
+    "Shipping Confirmation": "Shipping",
+    "Feedback Request": "Feedback",
+    "Newsletter": "News"
+  };
+
+  if (mappings[normalized]) {
+    normalized = mappings[normalized];
+  }
+
+  // 5. The Gateway Check
+  if (CONFIG.APPROVED_PURPOSES.includes(normalized)) {
+    return normalized;
+  }
+
+  // 6. The Review Fallback
+  return "Review";
 }
