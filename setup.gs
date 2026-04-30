@@ -170,45 +170,59 @@ function setupAutoRun() {
  * Importance: Provides the foundational instructions that tell the AI how to categorize emails, which are dynamically populated at runtime.
  */
 function getDefaultPromptTemplate() {
-  return `Analyze this batch of emails from the same sender domain.
+  return `You are a highly precise data categorization API. Your task is to analyze a batch of emails from a single sender domain and output a strictly formatted JSON array.
 
-Task 1: Global Domain Info
-- Identify the Correspondent Name. Check existing list: [{{CORRESPONDENTS}}].
-- Entity Type: Choose exactly ONE category from this list based on the correspondent:
+### CORE CONSTRAINTS
+1. **Zero-Trust Taxonomy:** You must strictly select 'Entity Type' from the <available_entities> list. For 'Purpose', strictly select from the <available_purposes> list if a match exists. If it does not exist, provide a concise, 1-2 word singular category. Do not hallucinate plural categories.
+2. **Correspondent Name:** Identify the Correspondent Name. You MUST check the <available_correspondents> list first to prevent duplicates. If it's a new sender, extract their exact name.
+3. **Priority of Rules:** You must obey the <global_rules> first. 
+
+<taxonomy_whitelists>
+    <available_entities>
 {{ENTITIES}}
-Task 2: Email Specifics (Evaluate each EMAIL INDEX)
-For each email, provide:
-- index: The integer ID matching the EMAIL INDEX.
-- purpose: Identify a specific reason (e.g., Order Update, Shipping Notice, Price Update, Receipt, Statement). MUST strictly check existing list: [{{PURPOSES}}] and reuse existing matching purposes. 
-CRITICAL TAXONOMY RULES:
-  - NEVER use plurals for these categories. Force consolidation: 'Payments' -> 'Payment', 'Statements' -> 'Statement', 'Credit Reports' -> 'Credit Report'.
-  - Route all Calendar invites/accepts strictly to 'Calendar'.
-  - 'Event Notice' must be mapped directly to 'Events'.
-  - NEVER use 'Support'. Map to 'Issues-Support'.
-  - CRITICAL RULE: If the entityType is 'News', do NOT use 'News', 'Daily', or 'Newsletter' as the purpose (return null instead). However, specific administrative purposes (e.g., 'Statement', 'Account Update', 'Announcements') are strictly allowed and should be applied if present.
-  - If you are unsure or it does not fit a clear category, return null.
-- category: Must be exactly "Primary", "Promotions", "Social", "Updates", or "Forums". CRITICAL RULE: If the entityType is "People" and this is a conversational email, strongly favor "Primary" over "Updates".
-- isImportant: Boolean ({{IMPORTANT_RULE}}). ALWAYS set to true for "Alerts", do NOT use "Alert" or "Alerts" as a purpose.
-- isStarred: Boolean ({{STARRED_RULE}})
+    </available_entities>
 
-Return ONLY a raw JSON object. Do not include markdown blocks.
-Format:
+    <available_correspondents>
+        [{{CORRESPONDENTS}}]
+    </available_correspondents>
+    
+    <available_purposes>
+        [{{PURPOSES}}]
+    </available_purposes>
+</taxonomy_whitelists>
+
+<global_rules>
+    - NEVER use plurals for purposes. Force consolidation: 'Payments' -> 'Payment', 'Statements' -> 'Statement'.
+    - "Events": Use this strictly for "Event Notices". Do not route to calendar.
+    - "Calendar": Route all Calendar invites/accepts strictly to 'Calendar'.
+    - "Issues-Support": Use this for all customer service interactions. NEVER use the word "Support" alone.
+    - "Newsletters": If the overall Entity Type is "News", you MUST return null for the purpose, UNLESS the specific email is an administrative "Statement" or "Account Update".
+    - "Primary Category": If the Entity Type is "People" and the email reads as conversational, strongly favor "Primary" over "Updates".
+    - "Alerts": Set isImportant: {{IMPORTANT_RULE}} for security or account alerts. Do NOT use "Alert" or "Alerts" as a Purpose string.
+    - "Starred": Set isStarred: {{STARRED_RULE}}.
+</global_rules>
+
+### INPUT DATA
+<sender_domain>{{DOMAIN}}</sender_domain>
+<email_batch>
+{{PAYLOAD}}
+</email_batch>
+
+### OUTPUT SCHEMA
+Return ONLY a raw JSON object matching this exact structure. Do not include markdown blocks.
 {
-  "name": "Correspondent Name",
-  "entityType": "Business", 
+  "name": "Correspondent Name (Check available_correspondents first, otherwise extract)",
+  "entityType": "Exact string from available_entities", 
   "emails": [
     {
       "index": 0,
-      "purpose": "Order Update",
-      "category": "Updates",
-      "isImportant": false,
-      "isStarred": false
+      "purpose": "Exact string from available_purposes, new concise singular purpose, or null",
+      "category": "Primary | Promotions | Social | Updates | Forums",
+      "isImportant": boolean,
+      "isStarred": boolean
     }
   ]
 }
-
-Sender Domain: {{DOMAIN}}
-{{PAYLOAD}}
 
 [START_AUTOTUNED_RULES]
 1. No autotuned rules generated yet.
